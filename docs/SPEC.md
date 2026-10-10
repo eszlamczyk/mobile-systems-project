@@ -1,7 +1,7 @@
 # Mobile systems project specification
 
 This document is the specification for this project. It is **not** the final report we want alongside the working project.
-All derivations ("why is this correct") live in [MATH.md](MATH.md); this file only states decisions.
+All derivations ("why is this correct") live in [MUSIC.md](MUSIC.md) (notes, cents, harmonics, chords) and [FFT.md](FFT.md) (FFT, windowing, YIN, noise removal); this file only states decisions.
 
 ## Overview
 
@@ -14,47 +14,45 @@ pitch is to the target.
 One monorepo, three parts:
 
 ```
-core/      Rust crate: signal processing. No platform code. Unit tested with `cargo test`.
+core/      Rust crate: signal processing. Unit tested
 android/   Kotlin UI + mic capture (AudioRecord). Calls core through UniFFI-generated Kotlin.
 ios/       Swift UI + mic capture (AVAudioEngine). Calls core through UniFFI-generated Swift.
 ```
 
-Rule: pure math goes in `core/`. Anything that touches the OS (mic, threads, drawing) stays in the apps.
+This is done so we don't have to write the same logic multiple times. Pure math goes in `core/`. Anything that touches the OS (mic, threads, drawing) stays in the apps.
 The core has no threads, no I/O, and no allocations after `Tuner::new`.
 
 ### Core language
 
-Rust, exposed through [UniFFI](https://mozilla.github.io/uniffi-rs/) proc-macros (no `.udl` file).
-Chosen for developer experience: `cargo test` on the desktop, no undefined behaviour in the DSP, and
-generated Kotlin and Swift classes instead of hand-written JNI and bridging headers.
+Rust, chosen for DX, exposed through [UniFFI](https://mozilla.github.io/uniffi-rs/) proc-macros (no `.udl` file).
+`cargo test` on the desktop, no undefined behaviour in the DSP, and generated Kotlin and Swift classes instead of hand-written JNI and bridging headers.
 
-Toolchain we must bring in on top of Android Studio and Xcode:
+Toolchain on top of Android Studio and Xcode:
 
 - `rustup` with targets `aarch64-linux-android`, `aarch64-apple-ios`, `aarch64-apple-ios-sim`
-  (add `x86_64-linux-android` for the emulator).
 - `cargo-ndk` to build the Android `.so` against the NDK and drop it into `jniLibs/`.
-- `uniffi-bindgen`, run as a binary in our workspace (`cargo run --bin uniffi-bindgen`), to generate the Kotlin and Swift sources from the compiled library.
+- `uniffi-bindgen`, run as a binary in workspace (`cargo run --bin uniffi-bindgen`), to generate the Kotlin and Swift sources from the compiled library.
 - A script that wraps the iOS static libs into an XCFramework (`xcodebuild -create-xcframework`), or `cargo-swift` which does the same.
 - Reference scaffolding: [uniffi-starter](https://github.com/ianthetechie/uniffi-starter) (Android library build, XCFramework script, Swift package layout).
 
-Alternatives considered: C++ with a C ABI (first-class on both platforms, rejected for DX), plain C,
-Kotlin Multiplatform (reaches iOS through a generated Objective-C framework; not the exercise we want),
-Rust with a raw C ABI via `cbindgen` plus the `jni` crate (zero-copy, but all the glue is hand written;
+Other considatation was Rust with a raw C ABI via `cbindgen` plus the `jni` crate (zero-copy, but all the glue is hand written;
 kept as a fallback for the hot path if profiling ever demands it).
 
 ## Threads
+
+Threads are already mapped out to not forget anything related to the threading (that would cause blocking behaviour on the main thread)
 
 | Thread | Owned by | Does | Must not |
 |---|---|---|---|
 | **Audio capture** | OS (iOS tap callback) / us (Android `AudioRecord.read` loop) | copy PCM into a lock-free ring buffer | allocate, take a mutex, log, touch UI |
 | **DSP** | us | pull one hop from the ring buffer, call `Tuner.process`, publish result by atomic swap of a double buffer | touch UI objects |
-| **UI / main** | OS | at most 30 times per second read the latest result, set colour, redraw plot | block waiting on DSP |
+| **UI / main** | OS | at most 30 times per second read the latest result, set colour, redraw plot | **block waiting on DSP** |
 
+### Additional notes 
 - On Android capture and DSP may be the same thread, because `read()` blocks on a thread we own.
 - Noise learning is requested from UI by setting a flag; the DSP thread executes it.
-- The `Tuner` object holds a `Mutex` because UniFFI objects must be `Send + Sync`. Only the DSP thread
-  calls `process`, so the lock is never contended. UI calls only the cheap setters.
-- Capture stops when the app goes to background. Nothing runs while not visible.
+- The `Tuner` object holds a `Mutex` because UniFFI objects must be `Send + Sync`. Only the DSP thread calls `process`, so the lock is never contended. UI calls only the cheap setters.
+- **Capture stops** when the app goes to background. Nothing runs while not visible.
 
 ## Core API
 
@@ -100,19 +98,15 @@ impl Tuner {
 }
 ```
 
-Inside `process`: window, FFT (hand written, see MATH.md), magnitude, spectral subtraction,
+Inside `process`: window, FFT, magnitude, spectral subtraction,
 band-pass, smoothing into `spectrum`; YIN on the time-domain frame for `pitch_hz`; cents against target.
 
 ### Glue
 
 - **Android**: `cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release`, then
-  `uniffi-bindgen generate --library <libtuner.so> --language kotlin` into a generated source dir
-  wired into Gradle. Kotlin gets `class Tuner` and uses it directly. The generated bindings load the
-  library through JNA (`net.java.dev.jna:jna@aar` dependency).
-- **iOS**: `cargo build --release` for device and simulator targets, `uniffi-bindgen ... --language swift`,
-  bundle into `Tuner.xcframework`, add as a local Swift package. Swift gets `class Tuner`.
-- **Tests**: `core/tests/` with synthesized sines and recorded WAVs; FFT compared against a naive DFT.
-  `cargo bench` for `process` to keep an eye on the per-hop cost.
+  `uniffi-bindgen generate --library <libtuner.so> --language kotlin` into a generated source dir wired into Gradle. Kotlin gets `class Tuner` and uses it directly. The generated bindings load the library through JNA (`net.java.dev.jna:jna@aar` dependency).
+- **iOS**: `cargo build --release` for device and simulator targets, `uniffi-bindgen ... --language swift`, bundle into `Tuner.xcframework`, add as a local Swift package. Swift gets `class Tuner`.
+- **Tests**: `core/tests/` with synthesized sines and recorded WAVs; FFT compared against a naive DFT. No need to Unit test the UI, possibly using Argent Flows. `cargo bench` for `process` to keep an eye on the per-hop cost.
 
 ## Performance traps
 
@@ -146,22 +140,27 @@ The UI should look like:
 ### The layout
 
 ```
- _________________________
-|                         |
-|  [ Selector:       ^  ] |
-|                         |
-|  +-------------------+  |
-|  |                   |  |
-|  |         B         |  |  <- colour coded red..green
-|  |                   |  |     by how close you are
-|  +-------------------+  |
-|                         |
-|  +-------------------+  |
-|  |     .    PLOT     |  |  <- live frequency plot
-|  |    / \   .--.     |  |     (grey ghost = target)
-|  |   /   \./    \    |  |
-|  +-------------------+  |
-|_________________________|
++---------------------------+
+|                           |
+|  [ Target note:   B  v ]  |  <- selector
+|                           |
+|  +---------------------+  |
+|  |                     |  |
+|  |          B          |  |  <- big panel, colour coded
+|  |                     |  |     red..green by how close
+|  |      +3.2 cents     |  |     you are, with the offset
+|  |      442.0 Hz       |  |     shown in real numbers
+|  |                     |  |
+|  +---------------------+  |
+|                           |
+|  +---------------------+  |
+|  |        .            |  |  <- live spectrum plot
+|  |       / \   .--.    |  |     (grey ghost = target)
+|  |      /   \./    \   |  |
+|  |  ___/           \__ |  |
+|  +---------------------+  |
+|                           |
++---------------------------+
 ```
 
 ## Nice to have
@@ -172,12 +171,15 @@ Viable, with limits. A chord is several notes at once (C major = C, E, G). The s
 fundamentals plus their overlapping harmonics, so single-pitch detection cannot work. Instead:
 
 - The core folds the spectrum into a 12-bin **chroma vector** (one bin per pitch class, all octaves summed)
-  and scores it against templates for major and minor triads. See MATH.md.
+  and scores it against templates for major and minor triads. See MUSIC.md section 5.
 - **UI**: the selector gains a chord mode; the ghost draws three combs; the big panel shows the chord
   name and a match percentage instead of cents.
 - **API**: `Tuner::chroma(&self) -> Vec<f32>` (12 values) and `Tuner::match_chord(&self, root: i32, kind: ChordKind) -> f32`.
 - **Limits**: polyphonic instruments only (guitar, piano), clean signal, templates we add by hand.
   Individual strings of a strummed chord cannot be tuned to the cent this way.
+
+
+This would be a separate Screen/panel displaying "What did you just play"
 
 ### Other
 
