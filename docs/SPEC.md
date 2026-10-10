@@ -14,12 +14,12 @@ pitch is to the target.
 One monorepo, three parts:
 
 ```
-core/      Rust crate: signal processing. Unit tested
+dsp-core/      Rust crate: signal processing. Unit tested
 android/   Kotlin UI + mic capture (AudioRecord). Calls core through UniFFI-generated Kotlin.
 ios/       Swift UI + mic capture (AVAudioEngine). Calls core through UniFFI-generated Swift.
 ```
 
-This is done so we don't have to write the same logic multiple times. Pure math goes in `core/`. Anything that touches the OS (mic, threads, drawing) stays in the apps.
+This is done so we don't have to write the same logic multiple times. Pure math goes in `dsp-core/`. Anything that touches the OS (mic, threads, drawing) stays in the apps.
 The core has no threads, no I/O, and no allocations after `Tuner::new`. Buffers cross the UniFFI boundary borrowed, not copied (see Core API).
 
 ### Core language
