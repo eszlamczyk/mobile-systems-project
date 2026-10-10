@@ -20,7 +20,7 @@ ios/       Swift UI + mic capture (AVAudioEngine). Calls core through UniFFI-gen
 ```
 
 This is done so we don't have to write the same logic multiple times. Pure math goes in `core/`. Anything that touches the OS (mic, threads, drawing) stays in the apps.
-The core has no threads, no I/O, and no allocations after `Tuner::new`.
+The core has no threads, no I/O, and no allocations after `Tuner::new`. Buffers cross the UniFFI boundary borrowed, not copied (see Core API).
 
 ### Core language
 
@@ -29,14 +29,14 @@ Rust, chosen for DX, exposed through [UniFFI](https://mozilla.github.io/uniffi-r
 
 Toolchain on top of Android Studio and Xcode:
 
+- `uniffi` 0.32+ for zero-copy `&[u8]` arguments. `&mut [u8]` is on `main` but unreleased as of 0.32.2; pin a git revision, or return the spectrum as `Vec<u8>` until it ships.
 - `rustup` with targets `aarch64-linux-android`, `aarch64-apple-ios`, `aarch64-apple-ios-sim`
 - `cargo-ndk` to build the Android `.so` against the NDK and drop it into `jniLibs/`.
 - `uniffi-bindgen`, run as a binary in workspace (`cargo run --bin uniffi-bindgen`), to generate the Kotlin and Swift sources from the compiled library.
 - A script that wraps the iOS static libs into an XCFramework (`xcodebuild -create-xcframework`), or `cargo-swift` which does the same.
 - Reference scaffolding: [uniffi-starter](https://github.com/ianthetechie/uniffi-starter) (Android library build, XCFramework script, Swift package layout).
 
-Other considatation was Rust with a raw C ABI via `cbindgen` plus the `jni` crate (zero-copy, but all the glue is hand written;
-kept as a fallback for the hot path if profiling ever demands it).
+Other consideration was Rust with a raw C ABI via `cbindgen` plus the `jni` crate (also zero-copy, but all the glue is hand written).
 
 ## Threads
 
@@ -44,20 +44,20 @@ Threads are already mapped out to not forget anything related to the threading (
 
 | Thread | Owned by | Does | Must not |
 |---|---|---|---|
-| **Audio capture** | OS (iOS tap callback) / us (Android `AudioRecord.read` loop) | copy PCM into a lock-free ring buffer | allocate, take a mutex, log, touch UI |
+| **Audio capture** | OS (iOS tap callback) / us (Android `AudioRecord.read` loop) | copy PCM into a lock-free ring buffer | allocate, take a lock the UI can hold, log, touch UI |
 | **DSP** | us | pull one hop from the ring buffer, call `Tuner.process`, publish result by atomic swap of a double buffer | touch UI objects |
 | **UI / main** | OS | at most 30 times per second read the latest result, set colour, redraw plot | **block waiting on DSP** |
 
 ### Additional notes 
 - On Android capture and DSP may be the same thread, because `read()` blocks on a thread we own.
 - Noise learning is requested from UI by setting a flag; the DSP thread executes it.
-- The `Tuner` object holds a `Mutex` because UniFFI objects must be `Send + Sync`. Only the DSP thread calls `process`, so the lock is never contended. UI calls only the cheap setters.
+- The `Tuner` object holds a `Mutex<State>` because UniFFI objects must be `Send + Sync`. Only the DSP thread locks it (`process`, `learn_noise`), so it is never contended. UI calls (`set_target`, `target_spectrum`) touch only atomics and immutable config.
 - **Capture stops** when the app goes to background. Nothing runs while not visible.
 
 ## Core API
 
 ```rust
-// core/src/lib.rs   UniFFI proc-macros. Everything crossing the boundary is copied (see traps).
+// core/src/lib.rs   UniFFI proc-macros. Buffers are borrowed, records are copied (see traps).
 
 #[derive(uniffi::Record)]
 pub struct TunerConfig {
@@ -71,35 +71,38 @@ pub struct TunerConfig {
 #[derive(uniffi::Record)]
 pub struct TunerResult {
     pub pitch_hz: f32,      // 0 when nothing detected (gate)
-    pub cents: f32,         // offset from target, -50 .. 50
+    pub cents: f32,         // offset from target, unbounded (UI saturates colour at +-50)
     pub nearest_midi: i32,  // nearest note to pitch_hz
     pub confidence: f32,    // 0 .. 1 from YIN
     pub rms: f32,           // input loudness, drives the gate
 }
 
-#[derive(uniffi::Record)]
-pub struct Frame {
-    pub result: TunerResult,
-    pub spectrum: Vec<f32>, // fft_size / 2 magnitudes, cleaned, for the plot
-}
-
 #[derive(uniffi::Object)]
-pub struct Tuner { inner: Mutex<State> }   // State holds window, twiddles, ring, noise profile
+pub struct Tuner {
+    config: TunerConfig,      // immutable after new
+    target_midi: AtomicI32,   // written by UI, read by process
+    inner: Mutex<State>,      // window, twiddles, frame, noise profile; DSP thread only
+}
 
 #[uniffi::export]
 impl Tuner {
     #[uniffi::constructor]
     pub fn new(config: TunerConfig) -> Arc<Self>;       // all buffers allocated here
     pub fn spectrum_size(&self) -> u32;                 // fft_size / 2
-    pub fn set_target(&self, midi_note: i32);
-    pub fn learn_noise(&self, pcm: Vec<f32>);           // ~1 s of silence
-    pub fn process(&self, pcm: Vec<f32>) -> Frame;      // pcm.len() == hop_size
-    pub fn target_spectrum(&self) -> Vec<f32>;          // grey ghost comb
+    pub fn set_target(&self, midi_note: i32);           // atomic store, no lock
+    pub fn target_spectrum(&self) -> Vec<f32>;          // grey ghost comb, UI thread, on target change
+    pub fn learn_noise(&self, pcm: &[u8]);              // ~1 s of silence
+    pub fn process(&self, pcm: &[u8], spectrum: &mut [u8]) -> TunerResult;
+                                                        // pcm: one hop of f32 samples as bytes
+                                                        // spectrum: fft_size / 2 magnitudes, written in place
 }
 ```
 
 Inside `process`: window, FFT, magnitude, spectral subtraction,
 band-pass, smoothing into `spectrum`; YIN on the time-domain frame for `pitch_hz`; cents against target.
+
+Buffers are native-endian f32 as bytes: a direct `ByteBuffer` on Kotlin, `Data` on Swift. The apps allocate them once and reuse them every hop.
+`process` expects exactly one hop. The ring buffer guarantees that; anything else panics and the frame is dropped (see traps).
 
 ### Glue
 
@@ -110,18 +113,18 @@ band-pass, smoothing into `spectrum`; YIN on the time-domain frame for `pitch_hz
 
 ## Performance traps
 
-- **Allocations on the audio or DSP thread** cause GC pauses (Kotlin) and ARC traffic (Swift). Preallocate in `Tuner::new`; reuse the `FloatArray` / `[Float]` the apps hand to `process`.
-- **Calling the core per sample** is the classic mistake. UniFFI copies every argument and return value; a call costs microseconds through JNA. Once per hop (47 Hz) is fine, 48 kHz is not.
-- **Copies across the boundary**: `Vec<f32>` in and `Frame` out are about 12 KB per hop, under 1 MB/s. Not a problem. If profiling ever disagrees, pass `&[u8]` (UniFFI borrows those without copying) or drop to a raw C ABI for `process` only.
+- **Allocations on the audio or DSP thread** cause GC pauses (Kotlin) and ARC traffic (Swift). Preallocate in `Tuner::new`; the apps allocate their buffers once and reuse them.
+- **Calling the core per sample** is the classic mistake. UniFFI serialises records and `Vec`s; a call costs microseconds through JNA. Once per hop (47 Hz) is fine, 48 kHz is not.
+- **Copies across the boundary**: `&[u8]` / `&mut [u8]` are borrowed, so PCM and spectrum cross without a copy. A `Vec<f32>` would become a Kotlin `List<Float>`, boxing 2048 floats per hop.
 - **Swift `Array` to pointer** copies unless done through `withUnsafeBufferPointer`; irrelevant through UniFFI, relevant if we add a raw path.
 - **Recomputing twiddles or the window** every frame. Precompute once in `new`.
 - **`f64` instead of `f32`** halves NEON throughput and doubles cache use.
 - **Bounds checks in the FFT inner loop**: use `chunks_exact` and iterators so the compiler can elide them; measure before reaching for `get_unchecked`.
-- **Mutex between audio and UI** stalls the audio callback. Ring buffer plus atomic swap only; the core's own mutex is touched by one thread.
-- **Panics in the hot path**: UniFFI turns a Rust panic into an exception on the Kotlin or Swift side, which drops the frame and unwinds. No `unwrap` on input-dependent values in `process`.
+- **Mutex between audio and UI** stalls the audio callback. Ring buffer plus atomic swap only; the core's own mutex is taken only by the DSP thread (see Threads).
+- **Panics in the hot path**: UniFFI turns a Rust panic into an exception, which drops the frame; the DSP loop catches it and continues. No `unwrap` on input-dependent values in `process`. Recover the `Mutex` from poisoning, or one panic kills every later call.
 - **Logging in the audio path** allocates and blocks.
 - **Resampling**: ask the device for its native rate instead of forcing 44100.
-- **Plot drawing**: 2048 path segments at 60 fps is slow. Downsample to pixel width (~400 points), use one path, redraw at DSP rate not screen rate.
+- **Plot drawing**: 2048 path segments at 60 fps is slow. Downsample to pixel width (~400 points), use one path, redraw when a new result arrives (max 30 Hz), not every screen frame.
 - **Battery**: continuous mic plus DSP. Stop on background, skip DSP while gated.
 - **Denormal floats** in decaying filters run up to 100 times slower. Enable flush-to-zero.
 - **Debug builds lie**: a Rust debug build is 10 to 50 times slower than release. Build with `--release`, set `lto = "fat"` and `codegen-units = 1` in the release profile, arm64 only, and measure with Perfetto and Instruments.
@@ -149,7 +152,7 @@ The UI should look like:
 |  |          B          |  |  <- big panel, colour coded
 |  |                     |  |     red..green by how close
 |  |      +3.2 cents     |  |     you are, with the offset
-|  |      442.0 Hz       |  |     shown in real numbers
+|  |      494.8 Hz       |  |     shown in real numbers
 |  |                     |  |
 |  +---------------------+  |
 |                           |

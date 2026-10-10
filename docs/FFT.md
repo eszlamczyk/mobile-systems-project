@@ -7,8 +7,9 @@ Notation: $f_s$ sample rate, $N$ frame length, $x[n]$ the PCM frame, $f_{\min}, 
 
 $$X[k] = \sum_{n=0}^{N-1} x[n]\, e^{-2\pi i kn/N}, \qquad k = 0..N-1.$$
 
-Bin $k$ is frequency $k f_s / N$. For real input $X[N-k] = \overline{X[k]}$, so only $k \le N/2$
-(Nyquist, $f_s/2$) carries information and we output $N/2$ magnitudes. Bin width $f_s/N$ is the plot resolution:
+Bin $k$ is frequency $k f_s / N$. For real input $X[N-k] = \overline{X[k]}$, so only $k = 0..N/2$
+(DC through Nyquist, $N/2 + 1$ bins) carries information. We output the $N/2$ magnitudes $k = 0..N/2-1$
+and drop the Nyquist bin, which the band-pass zeroes anyway (section 5). Bin width $f_s/N$ is the plot resolution:
 
 | $f_s$ | $N$ | bin width | frame length |
 |---|---|---|---|
@@ -28,7 +29,10 @@ Twiddles $W_N^k$ for $k < N/2$ and the window are precomputed once in `Tuner::ne
 
 Correctness tests in `core/tests/`:
 
-- random input against the naive $O(N^2)$ sum, max abs error below $10^{-3}$ for $N = 4096$ in `f32`;
+- random input in $[-1, 1]$ against the naive $O(N^2)$ sum computed in `f64` with the twiddle index reduced,
+  $W_N^{(kn) \bmod N}$; max abs error below $10^{-3}$ for $N = 4096$. The reference must be `f64` with the
+  reduced index: an `f32` reference using the raw argument $2\pi kn/N$ (up to $2.6 \cdot 10^4$ rad) is itself
+  off by about $2 \cdot 10^{-2}$ and would fail a correct FFT;
 - Parseval, $\sum |x[n]|^2 = \frac{1}{N} \sum |X[k]|^2$;
 - a sine at exactly $k f_s / N$ puts energy only in bins $k$ and $N - k$.
 
@@ -83,21 +87,20 @@ Gate: if the frame RMS is below a threshold, report `pitch_hz = 0` and keep the 
 ## 5. Noise removal: spectral subtraction
 
 Model the mic signal as $y = s + n$ with noise $n$ stationary and uncorrelated with the sound $s$.
-Then in expectation $|Y[k]|^2 \approx |S[k]|^2 + |N[k]|^2$, so the noise can be subtracted per bin.
+Then in expectation $|Y[k]|^2 \approx |S[k]|^2 + |N[k]|^2$: powers add, magnitudes do not
+($E|Y| \ne E|S| + E|N|$), so the profile and the subtraction are both in the power domain.
 
-Learning: over $M$ frames of silence, $\hat{N}[k] = \frac{1}{M} \sum_m |Y_m[k]|$.
+Learning: over $M$ frames of silence, $\hat{P}[k] = \frac{1}{M} \sum_m |Y_m[k]|^2$.
 
 Cleaning each live frame:
 
-$$|\hat{S}[k]| = \max\left(|Y[k]| - \alpha \hat{N}[k],\ \beta \hat{N}[k]\right),$$
+$$|\hat{S}[k]|^2 = \max\left(|Y[k]|^2 - \alpha \hat{P}[k],\ \beta^2 \hat{P}[k]\right), \qquad |\hat{S}[k]| = \sqrt{|\hat{S}[k]|^2},$$
 
-with over-subtraction $\alpha \in [1, 2]$ and floor $\beta \approx 0.01$. The floor stops bins flickering
-around zero ("musical noise"). Band-pass is free here: bins outside $[f_{\min}, f_{\max}]$ are set to zero.
+with over-subtraction $\alpha \in [1, 2]$ and floor $\beta \approx 0.01$ (a magnitude floor of $\beta \sqrt{\hat{P}[k]}$).
+The floor stops bins flickering around zero ("musical noise"). Band-pass is free here: bins outside $[f_{\min}, f_{\max}]$ are set to zero.
 
 Temporal smoothing for the plot: $\bar{S}_t = \lambda \bar{S}_{t-1} + (1 - \lambda)\hat{S}_t$, $\lambda \approx 0.7$.
 
-Why not SVD: the signal is one-dimensional. Low-rank tricks need a spectrogram or Hankel matrix, cost
-$O(N^3)$ per update, and assume structure a tuner does not need. Spectral subtraction is $O(N)$.
 
 ## 6. Chroma vector
 
@@ -105,5 +108,12 @@ Fold the cleaned spectrum into 12 pitch classes, summing all octaves. With $f_k 
 
 $$C[p] = \sum_{k \,:\, p(k) = p} |\hat{S}[k]|^2, \qquad p(k) = \mathrm{round}\!\left(69 + 12 \log_2 \frac{f_k}{440}\right) \bmod 12,$$
 
-over bins inside the band-pass, then normalise $C$ to unit length. Template matching and the musical
-reasoning are in MUSIC.md section 5.
+over bins inside the band-pass and above
+
+$$f_{\mathrm{chroma}} = \frac{f_s}{N\,(2^{1/12} - 1)} \approx 200\ \mathrm{Hz} \quad (N = 4096),$$
+
+the frequency where one bin becomes narrower than a semitone. Below it a bin covers several pitch classes
+(bin 7 spans 76 to 88 Hz, which is D♯2, E2 and F2 at once), so those bins are skipped. Low notes still
+count through their harmonics 2, 3 and 4, which land above the cut and fold onto the note's own pitch
+class or its fifth (MUSIC.md section 5). Then normalise $C$ to unit length. Template matching and the
+musical reasoning are in MUSIC.md section 5.

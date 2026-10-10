@@ -14,7 +14,9 @@ The nearest note is $\mathrm{round}(n(f))$. Offset from a target is measured in 
 
 $$c = 1200 \log_2 \frac{f}{f_t}.$$
 
-One semitone is $1200 / 12 = 100$ cents, so after rounding to the nearest note $c \in [-50, 50]$.
+One semitone is $1200 / 12 = 100$ cents, so the offset from the **nearest** note is in $[-50, 50]$.
+The offset from a user-chosen target is unbounded (A4 played against a B4 target is $-200$); the colour
+map in section 2 saturates at 50.
 
 | Note | MIDI | Hz |
 |---|---|---|
@@ -73,6 +75,8 @@ pitch-class bins gives the chroma vector $C \in \mathbb{R}^{12}$ (computed in FF
 A chord template is a 0/1 vector $t$ over pitch classes; each root is a rotation of the table above. Score:
 
 $$\mathrm{score}(C, t) = \frac{\langle C, t \rangle}{\|C\|\,\|t\|}.$$
+
+($C$ is already unit length after FFT.md section 6, so $\|C\| = 1$; the general form is kept.)
 
 Report the best root and kind, and show the score as a match percentage.
 
