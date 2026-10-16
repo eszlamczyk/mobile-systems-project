@@ -1,7 +1,7 @@
 # Mobile systems project specification
 
 This document is the specification for this project. It is **not** the final report we want alongside the working project.
-All derivations ("why is this correct") live in [MUSIC.md](MUSIC.md) (notes, cents, harmonics, chords) and [FFT.md](FFT.md) (FFT, windowing, YIN, noise removal); this file only states decisions.
+All derivations ("why is this correct") live in [MUSIC.md](MUSIC.md) (notes, cents, harmonics) and [FFT.md](FFT.md) (FFT, windowing, YIN, noise removal); this file only states decisions.
 
 ## Overview
 
@@ -135,7 +135,7 @@ Latency budget with defaults at 48 kHz: 85 ms frame, 21 ms hop, about 47 DSP upd
 
 The UI should look like:
 
-> On top a selectable bar to pick the target note (for example B).
+> On top a selectable bar to pick the target: a single note (for example B) or a tuning preset.
 > A big panel saying what you selected, colour coded red..green by how close you are to the target.
 > A plot of the live frequency spectrum, cleaned up with spectral subtraction.
 > The same plot shows a greyed out ghost of how the target should look.
@@ -145,15 +145,16 @@ The UI should look like:
 ```
 +---------------------------+
 |                           |
-|  [ Target note:   B  v ]  |  <- selector
+|  [ Drop D            v ]  |  <- selector: single note or preset
+|  [D] [A] [D] [G] [B] [E]  |  <- string buttons (preset only)
 |                           |
 |  +---------------------+  |
 |  |                     |  |
-|  |          B          |  |  <- big panel, colour coded
+|  |          D          |  |  <- big panel, colour coded
 |  |                     |  |     red..green by how close
 |  |      +3.2 cents     |  |     you are, with the offset
-|  |      494.8 Hz       |  |     shown in real numbers
-|  |                     |  |
+|  |     (73.6 Hz)       |  |     in cents; Hz only when
+|  |                     |  |     the toggle is on
 |  +---------------------+  |
 |                           |
 |  +---------------------+  |
@@ -166,25 +167,46 @@ The UI should look like:
 +---------------------------+
 ```
 
+- **Cents** are always shown. The **frequency** is behind a toggle, off by default: most users only need "how far and which way",
+  the raw Hz is for people who want it.
+- Colour thresholds are in MUSIC.md section 2.
+
+### Tuning presets
+
+A **preset** is a named, ordered list of target notes, one per string. Picking a preset shows a row of
+string buttons; tapping one sets the target exactly as picking a single note does. The DSP does not change,
+the core only ever sees one target MIDI note through `set_target`.
+
+The minimum is a **fixed list we provide**, focused on alternate tunings, not only standard:
+
+| Group | Presets |
+|---|---|
+| Standard | E standard (E A D G B E) |
+| Lowered | Half step down (E♭ A♭ D♭ G♭ B♭ E♭), full step down (D G C F A D) |
+| Drop | Drop D (D A D G B E), Drop C (C G C F A D), Drop B (B F♯ B E G♯ C♯) |
+| Open | Open G (D G D G B D), Open D (D A D F♯ A D), Open E (E B E G♯ B E), Open C (C G C G C E) |
+| Modal | DADGAD (D A D G A D, a "suspended" tuning popular in Celtic and folk music) |
+| Other instruments | Bass 4 string (E A D G), ukulele (G C E A), violin (G D A E) |
+
+Exact octaves (MIDI numbers) per string are fixed in the enum, not here.
+
+**Where the data lives**: in each app, not in the core. Presets are UI data, not math, and keeping them out of
+`dsp-core/` keeps the core's job to "PCM in, result out".
+
+- Kotlin and Swift each have a `Preset` enum with the same cases, names and MIDI notes.
+- The UI works with a plain `Preset(name, notes)` value that the enum maps into, so user-made presets
+  (Nice to have) can be added later without touching the UI.
+- A CI check keeps the two enums in sync: a script extracts case name and MIDI notes from both files and fails on any diff.
+
 ## Nice to have
 
-### Chords
+### Presets
 
-Viable, with limits. A chord is several notes at once (C major = C, E, G). The spectrum shows all
-fundamentals plus their overlapping harmonics, so single-pitch detection cannot work. Instead:
-
-- The core folds the spectrum into a 12-bin **chroma vector** (one bin per pitch class, all octaves summed)
-  and scores it against templates for major and minor triads. See MUSIC.md section 5.
-- **UI**: the selector gains a chord mode; the ghost draws three combs; the big panel shows the chord
-  name and a match percentage instead of cents.
-- **API**: `Tuner::chroma(&self) -> Vec<f32>` (12 values) and `Tuner::match_chord(&self, root: i32, kind: ChordKind) -> f32`.
-- **Limits**: polyphonic instruments only (guitar, piano), clean signal, templates we add by hand.
-  Individual strings of a strummed chord cannot be tuned to the cent this way.
-
-
-This would be a separate Screen/panel displaying "What did you just play"
+- **Custom presets**: the user builds their own list of notes, saved locally per app. Same `Preset(name, notes)` value as the fixed list.
+- **Auto string pick**: while a preset is active, highlight the string nearest to the played pitch, so the user does not have to tap a string first.
+- **Progress**: mark which strings are already in tune, so a full retune shows progress.
+- **Reference pitch**: A4 adjustable (for example 432 to 446 Hz) instead of fixed 440. This one does touch the core (`f(n)` in MUSIC.md section 1).
 
 ### Other
 
-- Instrument presets (guitar standard tuning as six selectable targets).
 - Log-frequency axis on the plot so low notes are readable.

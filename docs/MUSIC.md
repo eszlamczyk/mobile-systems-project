@@ -20,6 +20,7 @@ map in section 2 saturates at 50.
 
 | Note | MIDI | Hz |
 |---|---|---|
+| D2 | 38 | 73.42 |
 | E2 | 40 | 82.41 |
 | A2 | 45 | 110.00 |
 | D3 | 50 | 146.83 |
@@ -29,12 +30,14 @@ map in section 2 saturates at 50.
 | A4 | 69 | 440.00 |
 | B4 | 71 | 493.88 |
 
-The first six rows are standard guitar tuning, the preset in the nice-to-have list.
+E2 to E4 are standard guitar tuning. D2 replaces E2 in Drop D and DADGAD. The other tunings are listed in SPEC.md (Tuning presets),
+and any note not in this table follows from $f(n)$.
 
 ## 2. Colour
 
-Green at $|c| < 5$, red at $|c| \ge 50$, linear interpolation between. Five cents is roughly the
-limit of what a listener notices; fifty is halfway to the next note.
+Green at $|c| < 2$, red at $|c| \ge 50$, linear interpolation between. One cent is too strict to hit
+reliably by hand. Five cents lets through detuning that is audible as beating when two strings sound together.
+Fifty is halfway to the next note.
 
 ## 3. Harmonics
 
@@ -56,31 +59,3 @@ $$G(f) = \sum_{k=1}^{K} \frac{1}{k}\, H(f - k f_t), \qquad K = 8,$$
 
 where $H$ is the shape of one FFT peak (the Hann main lobe, FFT.md section 2) so the ghost has the same
 width as real peaks. The $1/k$ roll-off is a generic plucked-string profile and is cosmetic.
-
-## 5. Chords
-
-A chord is several notes sounded together. Intervals are counted in semitones from the root:
-
-| Chord | Semitones | Example |
-|---|---|---|
-| major triad | $\{0, 4, 7\}$ | C E G |
-| minor triad | $\{0, 3, 7\}$ | C E♭ G |
-
-A major triad's fundamentals sit near the ratio $4 : 5 : 6$. The spectrum of a chord is the sum of
-each note's comb, and the combs overlap: the 3rd harmonic of C (G5) lands on the pitch class of the
-chord's fifth, the 2nd and 4th harmonics land back on C.
-
-A **pitch class** is a note name with the octave ignored, 12 of them. Folding the spectrum into 12
-pitch-class bins gives the chroma vector $C \in \mathbb{R}^{12}$ (computed in FFT.md section 6).
-A chord template is a 0/1 vector $t$ over pitch classes; each root is a rotation of the table above. Score:
-
-$$\mathrm{score}(C, t) = \frac{\langle C, t \rangle}{\|C\|\,\|t\|}.$$
-
-($C$ is already unit length after FFT.md section 6, so $\|C\| = 1$; the general form is kept.)
-
-Report the best root and kind, and show the score as a match percentage.
-
-Why it works: harmonics 2, 4, 8 of any note fold onto the note's own pitch class, and harmonic 3 is a
-fifth, which both triads contain. Why it is limited: harmonic 5 is a major third, which pushes minor
-chords toward major. Weighting lower bins more reduces this but does not remove it. Individual strings
-of a strummed chord cannot be tuned to the cent from a chroma vector; chord mode reports a match, not cents.

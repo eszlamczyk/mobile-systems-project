@@ -100,20 +100,3 @@ with over-subtraction $\alpha \in [1, 2]$ and floor $\beta \approx 0.01$ (a magn
 The floor stops bins flickering around zero ("musical noise"). Band-pass is free here: bins outside $[f_{\min}, f_{\max}]$ are set to zero.
 
 Temporal smoothing for the plot: $\bar{S}_t = \lambda \bar{S}_{t-1} + (1 - \lambda)\hat{S}_t$, $\lambda \approx 0.7$.
-
-
-## 6. Chroma vector
-
-Fold the cleaned spectrum into 12 pitch classes, summing all octaves. With $f_k = k f_s / N$:
-
-$$C[p] = \sum_{k \,:\, p(k) = p} |\hat{S}[k]|^2, \qquad p(k) = \mathrm{round}\!\left(69 + 12 \log_2 \frac{f_k}{440}\right) \bmod 12,$$
-
-over bins inside the band-pass and above
-
-$$f_{\mathrm{chroma}} = \frac{f_s}{N\,(2^{1/12} - 1)} \approx 200\ \mathrm{Hz} \quad (N = 4096),$$
-
-the frequency where one bin becomes narrower than a semitone. Below it a bin covers several pitch classes
-(bin 7 spans 76 to 88 Hz, which is D♯2, E2 and F2 at once), so those bins are skipped. Low notes still
-count through their harmonics 2, 3 and 4, which land above the cut and fold onto the note's own pitch
-class or its fifth (MUSIC.md section 5). Then normalise $C$ to unit length. Template matching and the
-musical reasoning are in MUSIC.md section 5.
