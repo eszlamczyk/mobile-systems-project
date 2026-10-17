@@ -10,6 +10,9 @@ name = "dsp_core"
 [dependencies]
 uniffi = "0.32"
 
+[dev-dependencies]
+criterion = "0.8"
+
 [features]
 # Pulls uniffi_bindgen, clap and goblin into the build. Only the bindgen binary
 # needs them; never enable this for the mobile library builds.
@@ -19,6 +22,15 @@ bindgen = ["uniffi/cli"]
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
+
+[[bench]]
+name = "process"
+harness = false
+
+# Never `panic = "abort"`: UniFFI must catch panics to turn them into exceptions.
+[profile.release]
+lto = "fat"
+codegen-units = 1
 
 [lints.rust]
 unsafe_code = "forbid"

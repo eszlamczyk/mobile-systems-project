@@ -32,8 +32,8 @@ Toolchain on top of Android Studio and Xcode:
 - `uniffi` 0.32+ for zero-copy `&[u8]` arguments. `&mut [u8]` is on `main` but unreleased as of 0.32.2; pin a git revision, or return the spectrum as `Vec<u8>` until it ships.
 - `rustup` with targets `aarch64-linux-android`, `aarch64-apple-ios`, `aarch64-apple-ios-sim`
 - `cargo-ndk` to build the Android `.so` against the NDK and drop it into `jniLibs/`.
-- `uniffi-bindgen`, run as a binary in workspace (`cargo run --bin uniffi-bindgen`), to generate the Kotlin and Swift sources from the compiled library.
-- A script that wraps the iOS static libs into an XCFramework (`xcodebuild -create-xcframework`), or `cargo-swift` which does the same.
+- `uniffi-bindgen`, run as a binary in the crate (`cargo run --features bindgen --bin uniffi-bindgen`), to generate the Kotlin and Swift sources from the compiled library. Names come from `dsp-core/uniffi.toml`: Kotlin package `uniffi.dsp_core`, Swift module `DspCore`.
+- `scripts/build-android.sh` and `scripts/build-ios.sh` wrap the whole build (see Glue); the iOS one packages the static libs with `xcodebuild -create-xcframework`.
 - Reference scaffolding: [uniffi-starter](https://github.com/ianthetechie/uniffi-starter) (Android library build, XCFramework script, Swift package layout).
 
 Other consideration was Rust with a raw C ABI via `cbindgen` plus the `jni` crate (also zero-copy, but all the glue is hand written).
@@ -57,7 +57,7 @@ Threads are already mapped out to not forget anything related to the threading (
 ## Core API
 
 ```rust
-// core/src/lib.rs   UniFFI proc-macros. Buffers are borrowed, records are copied (see traps).
+// dsp-core/src/lib.rs   UniFFI proc-macros. Buffers are borrowed, records are copied (see traps).
 
 #[derive(uniffi::Record)]
 pub struct TunerConfig {
@@ -106,10 +106,10 @@ Buffers are native-endian f32 as bytes: a direct `ByteBuffer` on Kotlin, `Data` 
 
 ### Glue
 
-- **Android**: `cargo ndk -t arm64-v8a -o android/app/src/main/jniLibs build --release`, then
-  `uniffi-bindgen generate --library <libtuner.so> --language kotlin` into a generated source dir wired into Gradle. Kotlin gets `class Tuner` and uses it directly. The generated bindings load the library through JNA (`net.java.dev.jna:jna@aar` dependency).
-- **iOS**: `cargo build --release` for device and simulator targets, `uniffi-bindgen ... --language swift`, bundle into `Tuner.xcframework`, add as a local Swift package. Swift gets `class Tuner`.
-- **Tests**: `core/tests/` with synthesized sines and recorded WAVs; FFT compared against a naive DFT. No need to Unit test the UI, possibly using Argent Flows. `cargo bench` for `process` to keep an eye on the per-hop cost.
+- **Android** (`scripts/build-android.sh`): `cargo ndk -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release`, then
+  `uniffi-bindgen generate --library libdsp_core.so --language kotlin` into `android/app/build/generated/uniffi/`, wired into Gradle as a source dir. Kotlin gets `class Tuner` and uses it directly. The generated bindings load the library through JNA (`net.java.dev.jna:jna@aar` dependency).
+- **iOS** (`scripts/build-ios.sh`, macOS only): `cargo build --release` for device and simulator targets, `uniffi-bindgen generate --library libdsp_core.a --language swift` into `ios/generated/uniffi/`, bundle into `ios/DspCore.xcframework`, add as a local Swift package. Swift gets `class Tuner`.
+- **Tests**: `dsp-core/tests/` with synthesized sines and recorded WAVs; FFT compared against a naive DFT. No need to Unit test the UI, possibly using Argent Flows. `cargo bench` for `process` to keep an eye on the per-hop cost.
 
 ## Performance traps
 

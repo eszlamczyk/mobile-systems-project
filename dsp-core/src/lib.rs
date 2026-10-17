@@ -1,6 +1,9 @@
 //! Real-time instrument tuner core: pitch detection and spectrum rendering
 //! exposed to Kotlin and Swift through `UniFFI`.
 
+// Skeleton: every method is still `todo!()`. Remove once they are implemented.
+#![allow(dead_code, unused_variables)]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicI32;
@@ -59,12 +62,15 @@ impl Tuner {
     ///
     /// No allocation happens after this call.
     #[uniffi::constructor]
+    #[allow(clippy::needless_pass_by_value)] // UniFFI passes records by value
+    #[must_use]
     pub fn new(config: TunerConfig) -> Arc<Self> {
         todo!()
     }
 
     /// Number of magnitude bins produced per frame, equal to `fft_size / 2`.
     #[uniffi::method]
+    #[must_use]
     pub fn spectrum_size(&self) -> u32 {
         todo!()
     }
@@ -98,6 +104,7 @@ impl Tuner {
     /// `pcm` holds `hop_size` native-endian `f32` samples as bytes.
     /// `spectrum` receives `spectrum_size()` magnitudes as native-endian `f32` bytes.
     #[uniffi::method]
+    #[allow(clippy::needless_pass_by_value)] // placeholder signature, see TODO.md
     pub fn process(&self, pcm: &[u8], spectrum: Vec<u8>) -> TunerResult {
         todo!()
     }
