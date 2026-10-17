@@ -1,0 +1,45 @@
+[package]
+name = "dsp-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "dsp_core"
+
+[dependencies]
+uniffi = "0.32"
+
+[dev-dependencies]
+criterion = "0.8"
+
+[features]
+# Pulls uniffi_bindgen, clap and goblin into the build. Only the bindgen binary
+# needs them; never enable this for the mobile library builds.
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[[bench]]
+name = "process"
+harness = false
+
+# Never `panic = "abort"`: UniFFI must catch panics to turn them into exceptions.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+float_cmp = "deny"

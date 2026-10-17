@@ -1,0 +1,10 @@
+# Read by rustup only. Targets are installed automatically on first use.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+targets = [
+    "aarch64-linux-android",   # phones
+    "x86_64-linux-android",    # emulator
+    "aarch64-apple-ios",       # iPhone (links only on macOS)
+    "aarch64-apple-ios-sim",   # iOS simulator on Apple Silicon
+]

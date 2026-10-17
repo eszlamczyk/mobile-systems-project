@@ -1,0 +1,10 @@
+# Read by uniffi-bindgen in library mode. Names here are the ones the apps import.
+
+[bindings.kotlin]
+package_name = "uniffi.dsp_core"
+# Use android.system.SystemCleaner and other Android-only paths.
+android = true
+
+[bindings.swift]
+module_name = "DspCore"
+ffi_module_name = "DspCoreFFI"

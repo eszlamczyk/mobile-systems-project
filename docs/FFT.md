@@ -27,7 +27,7 @@ Gives $O(N \log N)$.
 Implementation: iterative, in place, bit-reversal permutation first, then $\log_2 N$ stages.
 Twiddles $W_N^k$ for $k < N/2$ and the window are precomputed once in `Tuner::new`.
 
-Correctness tests in `core/tests/`:
+Correctness tests in `dsp-core/tests/`:
 
 - random input in $[-1, 1]$ against the naive $O(N^2)$ sum computed in `f64` with the twiddle index reduced,
   $W_N^{(kn) \bmod N}$; max abs error below $10^{-3}$ for $N = 4096$. The reference must be `f64` with the
