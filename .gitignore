@@ -23,10 +23,11 @@ android/.externalNativeBuild/
 ios/**/xcuserdata/
 ios/**/*.xcuserstate
 ios/DerivedData/
-ios/.build/
 ios/Pods/
 ios/**/*.xcframework/
-ios/.swiftpm/
+ios/DspCore/Sources/DspCore/DspCore.swift
+ios/**/.swiftpm/
+ios/**/.build/
 
 # Editors and OS
 .idea/

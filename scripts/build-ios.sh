@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Builds dsp-core for iOS and packages it as an XCFramework. macOS only.
+# Builds dsp-core for iOS and fills the local Swift package ios/DspCore. macOS only.
 #
-#   XCFramework -> ios/DspCore.xcframework   (static libs + DspCoreFFI headers)
-#   Swift       -> ios/generated/uniffi/DspCore.swift
+#   XCFramework -> ios/DspCore/DspCoreFFI.xcframework        (static libs + DspCoreFFI headers)
+#   Swift       -> ios/DspCore/Sources/DspCore/DspCore.swift
 set -euo pipefail
 
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -21,7 +21,9 @@ for target in "${targets[@]}"; do
     cargo build --profile "$profile" --target "$target"
 done
 
-gen="$root/ios/generated/uniffi"
+package="$root/ios/DspCore"
+gen="$core/target/uniffi-swift"
+rm -rf "$gen"
 cargo run --quiet --features bindgen --bin uniffi-bindgen -- \
     generate \
     --library "$core/target/aarch64-apple-ios/$profile/libdsp_core.a" \
@@ -36,7 +38,11 @@ mkdir -p "$headers"
 cp "$gen/DspCoreFFI.h" "$headers/"
 cp "$gen/DspCoreFFI.modulemap" "$headers/module.modulemap"
 
-xcframework="$root/ios/DspCore.xcframework"
+# SwiftPM only sees sources inside the package directory.
+mkdir -p "$package/Sources/DspCore"
+cp "$gen/DspCore.swift" "$package/Sources/DspCore/"
+
+xcframework="$package/DspCoreFFI.xcframework"
 rm -rf "$xcframework"
 args=()
 for target in "${targets[@]}"; do

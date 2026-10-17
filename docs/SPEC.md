@@ -108,7 +108,7 @@ Buffers are native-endian f32 as bytes: a direct `ByteBuffer` on Kotlin, `Data` 
 
 - **Android** (`scripts/build-android.sh`): `cargo ndk -t arm64-v8a -t x86_64 -o android/app/src/main/jniLibs build --release`, then
   `uniffi-bindgen generate --library libdsp_core.so --language kotlin` into `android/app/build/generated/uniffi/`, wired into Gradle as a source dir. Kotlin gets `class Tuner` and uses it directly. The generated bindings load the library through JNA (`net.java.dev.jna:jna@aar` dependency).
-- **iOS** (`scripts/build-ios.sh`, macOS only): `cargo build --release` for device and simulator targets, `uniffi-bindgen generate --library libdsp_core.a --language swift` into `ios/generated/uniffi/`, bundle into `ios/DspCore.xcframework`, add as a local Swift package. Swift gets `class Tuner`.
+- **iOS** (`scripts/build-ios.sh`, macOS only): `cargo build --release` for device and simulator targets, `uniffi-bindgen generate --library libdsp_core.a --language swift`, then fill the local Swift package `ios/DspCore/`: the static libs as `DspCoreFFI.xcframework`, the generated Swift as `Sources/DspCore/DspCore.swift`. The app (`ios/MobileTuner.xcodeproj`) depends on it and does `import DspCore`. Swift gets `class Tuner`.
 - **Tests**: `dsp-core/tests/` with synthesized sines and recorded WAVs; FFT compared against a naive DFT. No need to Unit test the UI, possibly using Argent Flows. `cargo bench` for `process` to keep an eye on the per-hop cost.
 
 ## Performance traps
