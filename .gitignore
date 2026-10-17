@@ -18,6 +18,7 @@ android/captures/
 android/.cxx/
 android/**/jniLibs/
 android/.externalNativeBuild/
+android/kls_database.db
 
 # iOS (/ios)
 ios/**/xcuserdata/
