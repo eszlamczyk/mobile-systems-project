@@ -33,28 +33,31 @@ class TunerEngine(context: Context) : AutoCloseable {
         private set
 
     private var thread: Thread? = null
-    private val pcm = ByteBuffer.allocateDirect(HOP * 4).order(ByteOrder.nativeOrder())
-    private val noise = ByteBuffer.allocateDirect(NOISE_HOPS * HOP * 4).order(ByteOrder.nativeOrder())
+
+    // Analysis parameters default in dsp-core (TunerConfig); only the rate is ours.
+    private val config = TunerConfig(sampleRate = SAMPLE_RATE_HZ.toUInt())
+    private val hopBytes = config.hopSize.toInt() * 4
+    private val pcm = ByteBuffer.allocateDirect(hopBytes).order(ByteOrder.nativeOrder())
+    private val noise = ByteBuffer.allocateDirect(NOISE_HOPS * hopBytes).order(ByteOrder.nativeOrder())
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
         if (running) return
-        val sampleRateHz = 48000
         val record = AudioRecord.Builder()
             .setAudioSource(if (unprocessedSupported()) UNPROCESSED else VOICE_RECOGNITION)
             .setAudioFormat(AudioFormat.Builder()
                     .setEncoding(ENCODING_PCM_FLOAT)
-                    .setSampleRate(sampleRateHz)
+                    .setSampleRate(SAMPLE_RATE_HZ)
                     .setChannelMask(CHANNEL_IN_MONO)
                     .build())
             .setBufferSizeInBytes(
                 maxOf(
                     AudioRecord.getMinBufferSize(
-                        sampleRateHz, CHANNEL_IN_MONO, ENCODING_PCM_FLOAT
+                        SAMPLE_RATE_HZ, CHANNEL_IN_MONO, ENCODING_PCM_FLOAT
                     ),
-                    HOP * 4 * 4))
+                    hopBytes * 4))
             .build()
         // Fails when another app holds the mic; startRecording() would then throw on the DSP thread.
         if (record.state != AudioRecord.STATE_INITIALIZED) {
@@ -65,7 +68,7 @@ class TunerEngine(context: Context) : AutoCloseable {
 
         var coreError: String? = null
         if (tuner == null) tuner = try{
-            Tuner(TunerConfig(record.sampleRate.toUInt(), 4096u, HOP.toUInt(), 50f, 5000f)).also { it.setTarget(targetMidi) }
+            Tuner(config).also { it.setTarget(targetMidi) }
         } catch (e: Exception) {
             coreError = e.message
             null
@@ -83,7 +86,7 @@ class TunerEngine(context: Context) : AutoCloseable {
         record.startRecording()
         while (running) {
             // read() never moves position; it must stay 0 (the UniFFI converter ignores it)
-            if (record.read(pcm, HOP*4, AudioRecord.READ_BLOCKING) != HOP * 4) continue
+            if (record.read(pcm, hopBytes, AudioRecord.READ_BLOCKING) != hopBytes) continue
             hops++
             val t = tuner
             if (learnRequested && collectNoiseHop(t)) {
@@ -147,7 +150,9 @@ class TunerEngine(context: Context) : AutoCloseable {
     }
 
     companion object {
-        const val HOP = 1024
+        // Requested explicitly, so AudioRecord either runs at it or fails to initialise.
+        const val SAMPLE_RATE_HZ = 48000
+        // ~1 s of silence at 48 kHz with the default hop
         const val NOISE_HOPS = 47
     }
 }

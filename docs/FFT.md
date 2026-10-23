@@ -15,6 +15,7 @@ and drop the Nyquist bin, which the band-pass zeroes anyway (section 5). Bin wid
 |---|---|---|---|
 | 48000 | 2048 | 23.4 Hz | 43 ms |
 | 48000 | 4096 | 11.7 Hz | 85 ms |
+| 48000 | **8192** (default) | 5.9 Hz | 171 ms |
 | 48000 | 16384 | 2.9 Hz | 341 ms |
 
 Radix-2 butterfly, with $W_N = e^{-2\pi i/N}$ and $E, O$ the length-$N/2$ DFTs of the even and odd samples:
@@ -59,7 +60,7 @@ The log of the Hann main lobe is close to a parabola; $\delta$ is the vertex of 
 ## 4. Pitch detection with YIN
 
 The tallest FFT bin is not the pitch, for two reasons: resolution (at E2 the next semitone is 4.9 Hz away,
-under one bin at $N = 4096$) and harmonics louder than the fundamental (MUSIC.md section 3).
+under one bin even at $N = 8192$) and harmonics louder than the fundamental (MUSIC.md section 3).
 
 YIN works on the raw time-domain frame. Difference function over a window $W$ (we use $W = N/2$):
 
@@ -79,7 +80,8 @@ Refine $\tau$ with the parabola from section 3 on $d'(\tau-1), d'(\tau), d'(\tau
 $$f = \frac{f_s}{\tau}, \qquad \mathrm{confidence} = 1 - d'(\tau).$$
 
 Search range $\tau \in [f_s / f_{\max},\ f_s / f_{\min}]$, about 10 to 960 at 48 kHz.
-Cost $O(W \cdot \tau_{\max}) \approx 2 \cdot 10^6$ multiply-adds per frame, under a millisecond on a phone.
+Cost $O(W \cdot \tau_{\max}) \approx 4 \cdot 10^6$ multiply-adds per frame at $N = 8192$, a couple of milliseconds on a phone.
+The larger $N$ is what buys accuracy here: $W = 4096$ covers about 7 periods of E2 (82 Hz) instead of 3.5, so $d(\tau)$ averages out more noise.
 If that ever matters, $d(\tau) = r(0) + r_\tau(0) - 2r(\tau)$ with $r$ the autocorrelation, which the FFT gives in $O(N \log N)$.
 
 Gate: if the frame RMS is below a threshold, report `pitch_hz = 0` and keep the previous display.

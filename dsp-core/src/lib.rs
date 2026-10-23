@@ -15,17 +15,26 @@ use state::State;
 uniffi::setup_scaffolding!();
 
 /// Analysis parameters, fixed for the lifetime of a [`Tuner`].
+///
+/// The defaults below are the single source of truth for both apps: the
+/// generated Kotlin and Swift constructors take them as default arguments, so
+/// the apps pass only `sample_rate` and read `hop_size` back for their buffers.
 #[derive(uniffi::Record)]
 pub struct TunerConfig {
     /// Device native sample rate in Hz (44100 or 48000). No resampling is done.
     pub sample_rate: u32,
-    /// FFT length in samples. Must be a power of two; default 4096.
+    /// FFT length in samples. Must be a power of two. 8192 trades latency
+    /// (171 ms frame at 48 kHz) for accuracy on the low strings (docs/FFT.md).
+    #[uniffi(default = 8192)]
     pub fft_size: u32,
-    /// Samples between consecutive frames; default 1024.
+    /// Samples between consecutive frames.
+    #[uniffi(default = 1024)]
     pub hop_size: u32,
-    /// Lower edge of the analysis band-pass in Hz; default 50.
+    /// Lower edge of the analysis band-pass in Hz.
+    #[uniffi(default = 50.0)]
     pub min_hz: f32,
-    /// Upper edge of the analysis band-pass in Hz; default 5000.
+    /// Upper edge of the analysis band-pass in Hz.
+    #[uniffi(default = 5000.0)]
     pub max_hz: f32,
 }
 

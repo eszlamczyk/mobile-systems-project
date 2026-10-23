@@ -3,7 +3,7 @@ import Atomics
 import DspCore
 
 nonisolated final class TunerEngine: @unchecked Sendable {
-    static let hop = 1024
+    // ~1 s of silence at 48 kHz with the default hop
     static let noiseHops = 47
     
     private let engine = AVAudioEngine()
@@ -48,16 +48,14 @@ nonisolated final class TunerEngine: @unchecked Sendable {
             return
         }
         
+        // Analysis parameters default in dsp-core (TunerConfig); only the rate is ours.
+        let config = TunerConfig(sampleRate: UInt32(format.sampleRate))
+        let hop = Int(config.hopSize)
+
         var coreError: String?
         if tuner == nil {
             do {
-                let t = try Tuner(config: TunerConfig(
-                    sampleRate: UInt32(format.sampleRate),
-                    fftSize: 4096,
-                    hopSize: UInt32(Self.hop),
-                    minHz: 50,
-                    maxHz: 5000
-                ))
+                let t = try Tuner(config: config)
                 try t.setTarget(midiNote: targetMidi)
                 tuner = t
             } catch {
@@ -65,7 +63,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
             }
         }
         
-        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(Self.hop), format: format) {
+        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(hop), format: format) {
             [ring, wake] buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else {
                 return
@@ -83,7 +81,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         
         let error = coreError
         let thread = Thread { [self, tuner] in
-            dspLoop(tuner: tuner, coreError: error)
+            dspLoop(tuner: tuner, hop: hop, coreError: error)
             finished.signal()
         }
         thread.name = "dsp"
@@ -92,8 +90,8 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         dspThread = thread
     }
     
-    private func dspLoop(tuner: Tuner?, coreError: String?) {
-        let hopBytes = Self.hop * 4
+    private func dspLoop(tuner: Tuner?, hop: Int, coreError: String?) {
+        let hopBytes = hop * 4
         var pcm = Data(count: hopBytes)
         var noise = Data(count: Self.noiseHops * hopBytes)
         var noiseOffset = 0
@@ -102,8 +100,8 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         var dropped = 0
         while !Thread.current.isCancelled {
             wake.wait()
-            while ring.availbale >= Self.hop {
-                pcm.withUnsafeMutableBytes { ring.read(into: $0, count: Self.hop)}
+            while ring.availbale >= hop {
+                pcm.withUnsafeMutableBytes { ring.read(into: $0, count: hop)}
                 hops += 1
                 
                 var runDone = false

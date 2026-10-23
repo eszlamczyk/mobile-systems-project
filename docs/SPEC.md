@@ -62,11 +62,13 @@ Threads are already mapped out to not forget anything related to the threading (
 #[derive(uniffi::Record)]
 pub struct TunerConfig {
     pub sample_rate: u32,   // device native rate (44100 or 48000), no resampling
-    pub fft_size: u32,      // power of two, default 4096
+    pub fft_size: u32,      // power of two, default 8192
     pub hop_size: u32,      // samples between frames, default 1024
     pub min_hz: f32,        // band-pass, default 50
     pub max_hz: f32,        // band-pass, default 5000
 }
+// Defaults are `#[uniffi(default = ...)]`, so they become constructor default arguments in Kotlin and Swift.
+// The apps pass only `sample_rate` and size their buffers from `hop_size`; the core is the one place to tune.
 
 #[derive(uniffi::Record)]
 pub struct TunerResult {
@@ -108,8 +110,8 @@ method `throws` in Swift: an `Err` arrives as `TunerError`, a panic as UniFFI's 
 `InternalException` (Kotlin). The apps catch both and drop the frame.
 
 **Spectrum is returned, not written in place.** Writing into a caller buffer needs `&mut [u8]`, which is on
-UniFFI `main` but not in 0.32.2. Until it ships, `process` returns a fresh `Vec<u8>` (8 KB per hop at the
-default size, about 375 KB/s): one Rust allocation plus one copy into a `ByteArray` / `Data`. Then switch to
+UniFFI `main` but not in 0.32.2. Until it ships, `process` returns a fresh `Vec<u8>` (16 KB per hop at the
+default size, about 750 KB/s): one Rust allocation plus one copy into a `ByteArray` / `Data`. Then switch to
 `process(&self, pcm: &[u8], spectrum: &mut [u8])` and drop the field.
 
 Inside `process`: window, FFT, magnitude, spectral subtraction,
@@ -129,7 +131,7 @@ Buffers are native-endian f32 as bytes. PCM is a direct `ByteBuffer` on Kotlin (
 
 - **Allocations on the audio or DSP thread** cause GC pauses (Kotlin) and ARC traffic (Swift). Preallocate in `Tuner::new`; the apps allocate their buffers once and reuse them.
 - **Calling the core per sample** is the classic mistake. UniFFI serialises records and `Vec`s; a call costs microseconds through JNA. Once per hop (47 Hz) is fine, 48 kHz is not.
-- **Copies across the boundary**: `&[u8]` is borrowed, so PCM crosses without a copy; the spectrum is copied until `&mut [u8]` ships (see Core API). A `Vec<f32>` would become a Kotlin `List<Float>`, boxing 2048 floats per hop.
+- **Copies across the boundary**: `&[u8]` is borrowed, so PCM crosses without a copy; the spectrum is copied until `&mut [u8]` ships (see Core API). A `Vec<f32>` would become a Kotlin `List<Float>`, boxing 4096 floats per hop.
 - **Swift `Array` to pointer** copies unless done through `withUnsafeBufferPointer`; irrelevant through UniFFI, relevant if we add a raw path.
 - **Recomputing twiddles or the window** every frame. Precompute once in `new`.
 - **`f64` instead of `f32`** halves NEON throughput and doubles cache use.
@@ -143,7 +145,8 @@ Buffers are native-endian f32 as bytes. PCM is a direct `ByteBuffer` on Kotlin (
 - **Denormal floats** in decaying filters run up to 100 times slower. Enable flush-to-zero.
 - **Debug builds lie**: a Rust debug build is 10 to 50 times slower than release. Build with `--release`, set `lto = "fat"` and `codegen-units = 1` in the release profile, arm64 only, and measure with Perfetto and Instruments.
 
-Latency budget with defaults at 48 kHz: 85 ms frame, 21 ms hop, about 47 DSP updates per second, UI reads 30.
+Latency budget with defaults at 48 kHz: 171 ms frame, 21 ms hop, about 47 DSP updates per second, UI reads 30.
+The frame is deliberately long: a tuner is judged on accuracy, not response time, and the hop keeps the update rate unchanged.
 
 ## Must
 
