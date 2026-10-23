@@ -20,7 +20,7 @@ ios/       Swift UI + mic capture (AVAudioEngine). Calls core through UniFFI-gen
 ```
 
 This is done so we don't have to write the same logic multiple times. Pure math goes in `dsp-core/`. Anything that touches the OS (mic, threads, drawing) stays in the apps.
-The core has no threads, no I/O, and no allocations after `Tuner::new`. Buffers cross the UniFFI boundary borrowed, not copied (see Core API).
+The core has no threads, no I/O, and no allocations after `Tuner::new`, except the returned spectrum until `&mut [u8]` ships. PCM crosses the UniFFI boundary borrowed, not copied (see Core API).
 
 ### Core language
 
@@ -62,11 +62,13 @@ Threads are already mapped out to not forget anything related to the threading (
 #[derive(uniffi::Record)]
 pub struct TunerConfig {
     pub sample_rate: u32,   // device native rate (44100 or 48000), no resampling
-    pub fft_size: u32,      // power of two, default 4096
+    pub fft_size: u32,      // power of two, default 8192
     pub hop_size: u32,      // samples between frames, default 1024
     pub min_hz: f32,        // band-pass, default 50
     pub max_hz: f32,        // band-pass, default 5000
 }
+// Defaults are `#[uniffi(default = ...)]`, so they become constructor default arguments in Kotlin and Swift.
+// The apps pass only `sample_rate` and size their buffers from `hop_size`; the core is the one place to tune.
 
 #[derive(uniffi::Record)]
 pub struct TunerResult {
@@ -75,7 +77,12 @@ pub struct TunerResult {
     pub nearest_midi: i32,  // nearest note to pitch_hz
     pub confidence: f32,    // 0 .. 1 from YIN
     pub rms: f32,           // input loudness, drives the gate
+    pub spectrum: Vec<u8>,  // fft_size / 2 magnitudes as f32 bytes; ByteArray on Kotlin, Data on Swift
 }
+
+#[derive(uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum TunerError { InvalidInput }
 
 #[derive(uniffi::Object)]
 pub struct Tuner {
@@ -87,22 +94,31 @@ pub struct Tuner {
 #[uniffi::export]
 impl Tuner {
     #[uniffi::constructor]
-    pub fn new(config: TunerConfig) -> Arc<Self>;       // all buffers allocated here
-    pub fn spectrum_size(&self) -> u32;                 // fft_size / 2
-    pub fn set_target(&self, midi_note: i32);           // atomic store, no lock
-    pub fn target_spectrum(&self) -> Vec<f32>;          // grey ghost comb, UI thread, on target change
-    pub fn learn_noise(&self, pcm: &[u8]);              // ~1 s of silence
-    pub fn process(&self, pcm: &[u8], spectrum: &mut [u8]) -> TunerResult;
+    pub fn new(config: TunerConfig) -> Result<Arc<Self>, TunerError>;  // all buffers allocated here
+    pub fn spectrum_size(&self) -> Result<u32, TunerError>;            // fft_size / 2
+    pub fn set_target(&self, midi_note: i32) -> Result<(), TunerError>; // atomic store, no lock
+    pub fn target_spectrum(&self) -> Result<Vec<f32>, TunerError>;     // grey ghost comb, UI thread, on target change
+    pub fn learn_noise(&self, pcm: &[u8]) -> Result<(), TunerError>;   // ~1 s of silence
+    pub fn process(&self, pcm: &[u8]) -> Result<TunerResult, TunerError>;
                                                         // pcm: one hop of f32 samples as bytes
-                                                        // spectrum: fft_size / 2 magnitudes, written in place
 }
 ```
+
+**Every exported method returns `Result`**, even the ones that cannot fail. UniFFI catches every Rust panic,
+but Swift calls a non-throwing function through `try!`, so the panic would crash the app. A `Result` makes the
+method `throws` in Swift: an `Err` arrives as `TunerError`, a panic as UniFFI's internal error (Swift) or
+`InternalException` (Kotlin). The apps catch both and drop the frame.
+
+**Spectrum is returned, not written in place.** Writing into a caller buffer needs `&mut [u8]`, which is on
+UniFFI `main` but not in 0.32.2. Until it ships, `process` returns a fresh `Vec<u8>` (16 KB per hop at the
+default size, about 750 KB/s): one Rust allocation plus one copy into a `ByteArray` / `Data`. Then switch to
+`process(&self, pcm: &[u8], spectrum: &mut [u8])` and drop the field.
 
 Inside `process`: window, FFT, magnitude, spectral subtraction,
 band-pass, smoothing into `spectrum`; YIN on the time-domain frame for `pitch_hz`; cents against target.
 
-Buffers are native-endian f32 as bytes: a direct `ByteBuffer` on Kotlin, `Data` on Swift. The apps allocate them once and reuse them every hop.
-`process` expects exactly one hop. The ring buffer guarantees that; anything else panics and the frame is dropped (see traps).
+Buffers are native-endian f32 as bytes. PCM is a direct `ByteBuffer` on Kotlin (position must stay 0: the generated converter passes the base address and `remaining()` as the length) and `Data` on Swift. The apps allocate them once and reuse them every hop.
+`process` expects exactly one hop. The ring buffer guarantees that; anything else returns `InvalidInput` and the frame is dropped (see traps).
 
 ### Glue
 
@@ -115,13 +131,13 @@ Buffers are native-endian f32 as bytes: a direct `ByteBuffer` on Kotlin, `Data` 
 
 - **Allocations on the audio or DSP thread** cause GC pauses (Kotlin) and ARC traffic (Swift). Preallocate in `Tuner::new`; the apps allocate their buffers once and reuse them.
 - **Calling the core per sample** is the classic mistake. UniFFI serialises records and `Vec`s; a call costs microseconds through JNA. Once per hop (47 Hz) is fine, 48 kHz is not.
-- **Copies across the boundary**: `&[u8]` / `&mut [u8]` are borrowed, so PCM and spectrum cross without a copy. A `Vec<f32>` would become a Kotlin `List<Float>`, boxing 2048 floats per hop.
+- **Copies across the boundary**: `&[u8]` is borrowed, so PCM crosses without a copy; the spectrum is copied until `&mut [u8]` ships (see Core API). A `Vec<f32>` would become a Kotlin `List<Float>`, boxing 4096 floats per hop.
 - **Swift `Array` to pointer** copies unless done through `withUnsafeBufferPointer`; irrelevant through UniFFI, relevant if we add a raw path.
 - **Recomputing twiddles or the window** every frame. Precompute once in `new`.
 - **`f64` instead of `f32`** halves NEON throughput and doubles cache use.
 - **Bounds checks in the FFT inner loop**: use `chunks_exact` and iterators so the compiler can elide them; measure before reaching for `get_unchecked`.
 - **Mutex between audio and UI** stalls the audio callback. Ring buffer plus atomic swap only; the core's own mutex is taken only by the DSP thread (see Threads).
-- **Panics in the hot path**: UniFFI turns a Rust panic into an exception, which drops the frame; the DSP loop catches it and continues. No `unwrap` on input-dependent values in `process`. Recover the `Mutex` from poisoning, or one panic kills every later call.
+- **Panics in the hot path**: UniFFI turns a Rust panic into an exception (a throw on Swift only because every method returns `Result`), which drops the frame; the DSP loop catches it and continues. Aborts (panic while panicking, stack overflow, OOM) cannot be caught. No `unwrap` on input-dependent values in `process`. Recover the `Mutex` from poisoning, or one panic kills every later call.
 - **Logging in the audio path** allocates and blocks.
 - **Resampling**: ask the device for its native rate instead of forcing 44100.
 - **Plot drawing**: 2048 path segments at 60 fps is slow. Downsample to pixel width (~400 points), use one path, redraw when a new result arrives (max 30 Hz), not every screen frame.
@@ -129,7 +145,8 @@ Buffers are native-endian f32 as bytes: a direct `ByteBuffer` on Kotlin, `Data` 
 - **Denormal floats** in decaying filters run up to 100 times slower. Enable flush-to-zero.
 - **Debug builds lie**: a Rust debug build is 10 to 50 times slower than release. Build with `--release`, set `lto = "fat"` and `codegen-units = 1` in the release profile, arm64 only, and measure with Perfetto and Instruments.
 
-Latency budget with defaults at 48 kHz: 85 ms frame, 21 ms hop, about 47 DSP updates per second, UI reads 30.
+Latency budget with defaults at 48 kHz: 171 ms frame, 21 ms hop, about 47 DSP updates per second, UI reads 30.
+The frame is deliberately long: a tuner is judged on accuracy, not response time, and the hop keeps the update rate unchanged.
 
 ## Must
 

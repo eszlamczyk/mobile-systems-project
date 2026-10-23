@@ -47,6 +47,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     // The UniFFI bindings load libdsp_core.so through JNA; the AAR ships its Android native libs.
     implementation(libs.jna) { artifact { type = "aar" } }
     debugImplementation(libs.androidx.compose.ui.tooling)

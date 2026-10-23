@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		17BC09503083A8B60041B927 /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 17BC094F3083A8B60041B927 /* Atomics */; };
 		A10000000000000000000201 /* DspCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000501 /* DspCore */; };
 /* End PBXBuildFile section */
 
@@ -29,6 +30,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000201 /* DspCore in Frameworks */,
+				17BC09503083A8B60041B927 /* Atomics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +75,7 @@
 			name = MobileTuner;
 			packageProductDependencies = (
 				A10000000000000000000501 /* DspCore */,
+				17BC094F3083A8B60041B927 /* Atomics */,
 			);
 			productName = MobileTuner;
 			productReference = A10000000000000000000101 /* MobileTuner.app */;
@@ -104,6 +107,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A10000000000000000000502 /* XCLocalSwiftPackageReference "DspCore" */,
+				17BC094E3083A8B60041B927 /* XCRemoteSwiftPackageReference "swift-atomics" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000002 /* Products */;
@@ -281,7 +285,23 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		17BC094E3083A8B60041B927 /* XCRemoteSwiftPackageReference "swift-atomics" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-atomics.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		17BC094F3083A8B60041B927 /* Atomics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 17BC094E3083A8B60041B927 /* XCRemoteSwiftPackageReference "swift-atomics" */;
+			productName = Atomics;
+		};
 		A10000000000000000000501 /* DspCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DspCore;
