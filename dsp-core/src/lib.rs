@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 mod state;
 
@@ -96,16 +96,32 @@ pub struct Tuner {
 impl Tuner {
     /// Creates a tuner and allocates every buffer it will need.
     ///
-    /// No allocation happens after this call.
-    #[uniffi::constructor]
+    /// No allocation happens after this call. The target starts at A4 (MIDI 69).
     ///
     /// # Errors
     ///
-    /// [`TunerError::InvalidInput`] if `config` is unusable, for example a
-    /// non power of two `fft_size`.
+    /// [`TunerError::InvalidInput`] if `config` is unusable: `sample_rate` is 0,
+    /// `fft_size` is not a power of two of at least 2, `hop_size` is 0 or larger
+    /// than `fft_size`, or the band is not `0 <= min_hz < max_hz` with both finite.
+    #[uniffi::constructor]
     #[allow(clippy::needless_pass_by_value)] // UniFFI passes records by value
     pub fn new(config: TunerConfig) -> Result<Arc<Self>, TunerError> {
-        todo!()
+        let sample_rate_ok = config.sample_rate != 0;
+        let fft_ok = config.fft_size >= 2 && config.fft_size.is_power_of_two();
+        let hop_ok = config.hop_size > 0 && config.hop_size <= config.fft_size;
+        let band_ok =
+            config.min_hz >= 0.0 && config.max_hz.is_finite() && config.min_hz < config.max_hz;
+
+        if !sample_rate_ok || !fft_ok || !hop_ok || !band_ok {
+            return Err(TunerError::InvalidInput);
+        }
+
+        let state = State::new(&config);
+        Ok(Arc::new(Self {
+            config,
+            target_midi: AtomicI32::new(69),
+            inner: Mutex::new(state),
+        }))
     }
 
     /// Number of magnitude bins produced per frame, equal to `fft_size / 2`.
@@ -115,7 +131,7 @@ impl Tuner {
     /// Never in practice; fallible only so a panic reaches Swift as a throw.
     #[uniffi::method]
     pub fn spectrum_size(&self) -> Result<u32, TunerError> {
-        todo!()
+        Ok(self.config.fft_size / 2)
     }
 
     /// Sets the note the player is tuning to.
@@ -127,7 +143,12 @@ impl Tuner {
     /// [`TunerError::InvalidInput`] if `midi_note` is outside 0..=127.
     #[uniffi::method]
     pub fn set_target(&self, midi_note: i32) -> Result<(), TunerError> {
-        todo!()
+        if !(0..=127).contains(&midi_note) {
+            return Err(TunerError::InvalidInput);
+        }
+        // Relaxed: the target is a single independent value, no other memory hangs off it.
+        self.target_midi.store(midi_note, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Returns the ideal spectrum of the current target note, one magnitude per bin.
