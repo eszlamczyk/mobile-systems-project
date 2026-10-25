@@ -9,6 +9,10 @@ fn config() -> TunerConfig {
         hop_size: 1024,
         min_hz: 50.0,
         max_hz: 5000.0,
+        alpha: 1.5,
+        beta: 0.01,
+        lambda: 0.7,
+        epsilon: 1e-13,
     }
 }
 
@@ -85,6 +89,48 @@ fn band_must_be_finite_and_ordered() {
             ..config()
         };
         assert!(Tuner::new(bad).is_err(), "band {min_hz}..{max_hz}");
+    }
+}
+
+/// Writes one spectral constant into a config.
+type Setter = fn(&mut TunerConfig, f32);
+
+#[test]
+fn spectral_constants_must_be_in_range() {
+    let bad: [(&str, Setter, f32); 13] = [
+        ("alpha", |c, v| c.alpha = v, -0.1),
+        ("alpha", |c, v| c.alpha = v, f32::NAN),
+        ("alpha", |c, v| c.alpha = v, f32::INFINITY),
+        ("beta", |c, v| c.beta = v, -0.1),
+        ("beta", |c, v| c.beta = v, f32::NAN),
+        ("beta", |c, v| c.beta = v, f32::INFINITY),
+        ("lambda", |c, v| c.lambda = v, -0.1),
+        ("lambda", |c, v| c.lambda = v, 1.0),
+        ("lambda", |c, v| c.lambda = v, f32::NAN),
+        ("epsilon", |c, v| c.epsilon = v, 0.0),
+        ("epsilon", |c, v| c.epsilon = v, -1e-6),
+        ("epsilon", |c, v| c.epsilon = v, f32::NAN),
+        ("epsilon", |c, v| c.epsilon = v, f32::INFINITY),
+    ];
+    for (name, set, value) in bad {
+        let mut config = config();
+        set(&mut config, value);
+        assert!(Tuner::new(config).is_err(), "{name} = {value}");
+    }
+}
+
+#[test]
+fn spectral_constants_accept_their_edges() {
+    let good: [(&str, Setter, f32); 4] = [
+        ("alpha", |c, v| c.alpha = v, 0.0),
+        ("beta", |c, v| c.beta = v, 0.0),
+        ("lambda", |c, v| c.lambda = v, 0.0),
+        ("lambda", |c, v| c.lambda = v, 0.99),
+    ];
+    for (name, set, value) in good {
+        let mut config = config();
+        set(&mut config, value);
+        assert!(Tuner::new(config).is_ok(), "{name} = {value}");
     }
 }
 

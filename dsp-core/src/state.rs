@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use crate::TunerConfig;
-use crate::fft::{fill_hann, fill_twiddles};
+use crate::fft::{fft, fill_hann, fill_twiddles};
 
 /// Buffers that `process` and `learn_noise` read and write.
 ///
@@ -68,4 +68,23 @@ fn band(config: &TunerConfig, bins: usize) -> Range<usize> {
     let low = (config.min_hz * hz_to_bin).ceil() as usize;
     let high = ((config.max_hz * hz_to_bin).floor() as usize).saturating_add(1);
     low.min(bins)..high.min(bins)
+}
+
+/// Windows `samples` into `re`, zeroes `im` and transforms both in place.
+/// Afterwards bin `k` has power `re[k]^2 + im[k]^2`.
+///
+/// `samples` must yield exactly `fft_size` values: `zip` stops at the shorter
+/// side, so fewer would leave the previous frame's tail in `re`.
+pub fn transform(
+    samples: impl IntoIterator<Item = f32>,
+    window: &[f32],
+    twiddles: &[(f32, f32)],
+    re: &mut [f32],
+    im: &mut [f32],
+) {
+    for ((r, x), w) in re.iter_mut().zip(samples).zip(window) {
+        *r = x * w;
+    }
+    im.fill(0.0);
+    fft(re, im, twiddles);
 }
