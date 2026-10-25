@@ -37,6 +37,18 @@ pub struct TunerConfig {
     /// Upper edge of the analysis band-pass in Hz.
     #[uniffi(default = 5000.0)]
     pub max_hz: f32,
+    /// Constants - chosen arbitrarily
+    #[uniffi(default = 1.5)]
+    pub alpha: f32,
+    /// Constants - chosen arbitrarily
+    #[uniffi(default = 0.01)]
+    pub betha: f32,
+    /// Constants - chosen arbitrarily
+    #[uniffi(default = 0.7)]
+    pub gamma: f32,
+    /// Constants - chosen arbitrarily
+    #[uniffi(default = 1e-13)]
+    pub epsilon: f32,
 }
 
 /// Result of analysing one hop of audio.
