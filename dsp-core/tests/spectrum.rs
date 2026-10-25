@@ -1,7 +1,8 @@
 //! The spectrum path through the public API: input checks, peak placement,
 //! band-pass, noise subtraction and smoothing (docs/FFT.md sections 3 and 5).
 //!
-//! Every assertion holds whether `spectrum` carries linear magnitudes or dB.
+//! `spectrum` is in dBFS: a full-scale sine on a bin reads 0, a cut bin
+//! reads `20 log10(epsilon)`.
 
 // Index-to-float casts are exact at these sizes.
 #![allow(
@@ -19,6 +20,7 @@ const FFT_SIZE: usize = 8192;
 const HOP: usize = 1024;
 const MIN_HZ: f32 = 50.0;
 const MAX_HZ: f32 = 5000.0;
+const EPSILON: f32 = 1e-6;
 
 fn config() -> TunerConfig {
     TunerConfig {
@@ -30,7 +32,7 @@ fn config() -> TunerConfig {
         alpha: 1.5,
         beta: 0.01,
         lambda: 0.7,
-        epsilon: 1e-13,
+        epsilon: EPSILON,
     }
 }
 
@@ -199,6 +201,33 @@ fn smoothing_remembers_earlier_frames() -> Result<(), TunerError> {
         "bin {OLD}: {} after switching, {} fresh",
         switched[OLD],
         fresh[OLD]
+    );
+    Ok(())
+}
+
+#[test]
+fn full_scale_sine_reads_zero_dbfs() -> Result<(), TunerError> {
+    const BIN: usize = 100;
+    let tuner = Tuner::new(config())?;
+    // 40 hops: the frame fills after 8, then smoothing settles (0.7^32 ~ 1e-5).
+    let spectrum = last_spectrum(&tuner, &sine(BIN, 1.0, 40 * HOP))?;
+    assert!(
+        spectrum[BIN].abs() < 0.1,
+        "bin {BIN} is {} dBFS, want 0",
+        spectrum[BIN]
+    );
+    Ok(())
+}
+
+#[test]
+fn cut_bins_sit_at_the_epsilon_floor() -> Result<(), TunerError> {
+    let tuner = Tuner::new(config())?;
+    let spectrum = last_spectrum(&tuner, &noise(0.3, FFT_SIZE, 11))?;
+    let floor = 20.0 * EPSILON.log10();
+    assert!(
+        (spectrum[0] - floor).abs() < 1e-3,
+        "bin 0 is {} dB, want {floor}",
+        spectrum[0]
     );
     Ok(())
 }

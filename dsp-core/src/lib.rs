@@ -52,9 +52,11 @@ pub struct TunerConfig {
     /// chosen arbitrarily (docs/FFT.md section 5).
     #[uniffi(default = 0.7)]
     pub lambda: f32,
-    /// Offset added to a magnitude before taking dB, so a zero bin stays
-    /// finite. Must be finite and `> 0`. Default chosen arbitrarily.
-    #[uniffi(default = 1e-13)]
+    /// Offset added to the full-scale-normalised magnitude before taking dB, so
+    /// a zero bin stays finite: `20 log10(epsilon)` is the bottom of the
+    /// spectrum (-120 dBFS by default). Must be finite and `> 0`. Default chosen
+    /// arbitrarily.
+    #[uniffi(default = 1e-6)]
     pub epsilon: f32,
 }
 
@@ -71,7 +73,9 @@ pub struct TunerResult {
     pub confidence: f32,
     /// RMS loudness of the input. Drives the noise gate.
     pub rms: f32,
-    /// `spectrum_size()` magnitudes as native-endian `f32` bytes.
+    /// `spectrum_size()` levels in dBFS as native-endian `f32` bytes: a
+    /// full-scale sine on a bin reads 0, and bins outside the band or fully
+    /// subtracted read `20 log10(epsilon)`. Noise-subtracted and smoothed.
     ///
     /// Returned instead of written into a caller buffer until `UniFFI` ships
     /// `&mut [u8]` arguments (see docs/SPEC.md).
@@ -251,13 +255,88 @@ impl Tuner {
     /// Analyses one hop of audio.
     ///
     /// `pcm` holds `hop_size` native-endian `f32` samples as bytes. The spectrum
-    /// comes back in [`TunerResult::spectrum`].
+    /// comes back in [`TunerResult::spectrum`]; the only allocation is that
+    /// returned buffer.
     ///
     /// # Errors
     ///
     /// [`TunerError::InvalidInput`] if `pcm` is not exactly one hop.
     #[uniffi::method]
+    // Sizes stay far below 2^24, so they convert to f32 exactly.
+    #[allow(clippy::cast_precision_loss)]
     pub fn process(&self, pcm: &[u8]) -> Result<TunerResult, TunerError> {
-        todo!()
+        let (samples, rest) = pcm.as_chunks::<4>();
+        let hop = self.config.hop_size as usize;
+        if !rest.is_empty() || samples.len() != hop {
+            return Err(TunerError::InvalidInput);
+        }
+        let fft_size = self.config.fft_size as usize;
+        let TunerConfig {
+            alpha,
+            beta,
+            lambda,
+            epsilon,
+            ..
+        } = self.config;
+
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        // Reborrow so the field borrows below split; they cannot through the guard.
+        let state = &mut *guard;
+
+        // Drop the oldest hop and append the new one, measuring its loudness on
+        // the way. RMS covers only the new hop so the gate reacts within a hop.
+        state.frame.copy_within(hop.., 0);
+        let mut energy = 0.0;
+        for (sample, &bytes) in state.frame[fft_size - hop..].iter_mut().zip(samples) {
+            *sample = f32::from_ne_bytes(bytes);
+            energy += *sample * *sample;
+        }
+        let rms = (energy / hop as f32).sqrt();
+
+        transform(
+            state.frame.iter().copied(),
+            &state.window,
+            &state.twiddles,
+            &mut state.re,
+            &mut state.im,
+        );
+
+        // A full-scale sine on a bin has magnitude N/4 after the Hann window
+        // (N/2 from the FFT, halved by the window's mean), so this maps it to 0 dBFS.
+        let full_scale = 4.0 / fft_size as f32;
+        let bins = state.smoothed.len();
+        let mut spectrum = Vec::with_capacity(bins * 4);
+        // `smoothed` and `noise_profile` are half as long, so the mirrored bins are skipped.
+        let per_bin = state
+            .re
+            .iter()
+            .zip(&state.im)
+            .zip(&state.noise_profile)
+            .zip(state.smoothed.iter_mut())
+            .enumerate();
+        for (k, (((re, im), &noise), smoothed)) in per_bin {
+            // Spectral subtraction in the power domain (docs/FFT.md section 5).
+            // Cut bins stay exactly 0 through smoothing, so they sit at the floor.
+            let magnitude = if state.band.contains(&k) {
+                let power = re * re + im * im;
+                (power - alpha * noise).max(beta * beta * noise).sqrt()
+            } else {
+                0.0
+            };
+            // Smooth linear magnitudes, not dB, so it averages amplitudes.
+            *smoothed = lambda * *smoothed + (1.0 - lambda) * magnitude;
+            let level = 20.0 * (*smoothed * full_scale + epsilon).log10();
+            spectrum.extend_from_slice(&level.to_ne_bytes());
+        }
+
+        // TODO: YIN on `state.frame` for pitch, confidence and cents (docs/FFT.md section 4).
+        Ok(TunerResult {
+            pitch_hz: 0.0,
+            cents: 0.0,
+            nearest_midi: 0,
+            confidence: 0.0,
+            rms,
+            spectrum,
+        })
     }
 }

@@ -12,7 +12,7 @@ fn config() -> TunerConfig {
         alpha: 1.5,
         beta: 0.01,
         lambda: 0.7,
-        epsilon: 1e-13,
+        epsilon: 1e-6,
     }
 }
 
