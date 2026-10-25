@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, Ordering};
 
+pub mod fft;
 mod state;
 
 use state::State;
