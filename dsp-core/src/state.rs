@@ -1,6 +1,9 @@
 //! Mutable DSP state owned by the analysis thread.
 
+use std::ops::Range;
+
 use crate::TunerConfig;
+use crate::fft::{fill_hann, fill_twiddles};
 
 /// Buffers that `process` and `learn_noise` read and write.
 ///
@@ -12,20 +15,57 @@ pub struct State {
     pub twiddles: Vec<(f32, f32)>,
     /// Rolling input frame, `fft_size` samples. Each hop shifts in `hop_size` new ones.
     pub frame: Vec<f32>,
-    /// Per-bin noise floor learned from silence, `fft_size / 2` magnitudes.
+    /// FFT scratch, real part, `fft_size` entries. Overwritten with the
+    /// windowed frame before every FFT, so `frame` itself is never transformed.
+    pub re: Vec<f32>,
+    /// FFT scratch, imaginary part, `fft_size` entries. Zeroed before every FFT.
+    pub im: Vec<f32>,
+    /// Per-bin noise power `|N[k]|^2` learned from silence, `fft_size / 2` entries.
+    /// Zero until learned, which makes spectral subtraction a no-op.
     pub noise_profile: Vec<f32>,
+    /// Smoothed linear magnitudes from the previous hop, `fft_size / 2` entries.
+    /// Linear, not dB, so smoothing averages amplitudes.
+    pub smoothed: Vec<f32>,
+    /// Bins kept by the band-pass; every bin outside is zeroed. May be empty.
+    pub band: Range<usize>,
 }
 
 impl State {
-    /// Allocates every buffer for `config`, zero-filled.
+    /// Allocates every buffer for `config` and precomputes the window and twiddles.
+    /// Everything else starts zero-filled.
     pub fn new(config: &TunerConfig) -> Self {
         let fft_size = config.fft_size as usize;
         let bins = fft_size / 2;
+        let mut window = vec![0.0; fft_size];
+        fill_hann(&mut window);
+        let mut twiddles = vec![(0.0, 0.0); bins];
+        fill_twiddles(&mut twiddles);
+
         Self {
-            window: vec![0.0; fft_size],
-            twiddles: vec![(0.0, 0.0); bins],
+            window,
+            twiddles,
             frame: vec![0.0; fft_size],
+            re: vec![0.0; fft_size],
+            im: vec![0.0; fft_size],
             noise_profile: vec![0.0; bins],
+            smoothed: vec![0.0; bins],
+            band: band(config, bins),
         }
     }
+}
+
+/// Bins whose centre frequency `k * sample_rate / fft_size` lies in
+/// `min_hz..=max_hz`, clamped to the `bins` that are output.
+// `Tuner::new` guarantees a finite band with `min_hz >= 0`, so the casts only
+// truncate the already-rounded value; `as` saturates for bands past Nyquist.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn band(config: &TunerConfig, bins: usize) -> Range<usize> {
+    let hz_to_bin = config.fft_size as f32 / config.sample_rate as f32;
+    let low = (config.min_hz * hz_to_bin).ceil() as usize;
+    let high = ((config.max_hz * hz_to_bin).floor() as usize).saturating_add(1);
+    low.min(bins)..high.min(bins)
 }
