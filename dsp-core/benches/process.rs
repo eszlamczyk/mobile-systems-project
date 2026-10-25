@@ -32,8 +32,6 @@ fn process(c: &mut Criterion) {
         unreachable!("default config is valid");
     };
 
-    // One hop of A4 as the bytes the apps pass in. Learn a quiet noise profile
-    // first so the subtraction runs against a real profile.
     let pcm: Vec<u8> = (0..hop)
         .map(|n| 0.5 * (TAU * 440.0 * n as f64 / sample_rate).sin() as f32)
         .flat_map(f32::to_ne_bytes)

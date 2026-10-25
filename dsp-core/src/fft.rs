@@ -5,8 +5,8 @@
 
 use std::f64::consts::PI;
 
-/// Fills `window` with a Hann window of length `N = window.len()`:
-/// `w[n] = 0.5 * (1 - cos(2 pi n / (N - 1)))`. `N` is at least 2.
+/// Fills `window` with a symmetric Hann window (divides by `N - 1`, so both
+/// ends are 0). `window.len()` is at least 2.
 // Indices stay far below 2^52, and the f64 result is narrowed to f32 on purpose.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
 pub fn fill_hann(window: &mut [f32]) {
@@ -40,8 +40,6 @@ pub fn fft(re: &mut [f32], im: &mut [f32], twiddles: &[(f32, f32)]) {
         return;
     }
 
-    // Bit-reversal permutation: afterwards each block of a stage holds its
-    // even half followed by its odd half, contiguous.
     let shift = usize::BITS - n.trailing_zeros();
     for i in 0..n {
         let j = i.reverse_bits() >> shift;

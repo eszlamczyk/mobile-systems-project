@@ -9,30 +9,22 @@ use crate::fft::{fft, fill_hann, fill_twiddles};
 ///
 /// Allocated once by [`State::new`]; never resized afterwards.
 pub struct State {
-    /// Analysis window, `fft_size` samples.
     pub window: Vec<f32>,
-    /// FFT twiddle factors as `(cos, sin)` pairs, `fft_size / 2` entries.
     pub twiddles: Vec<(f32, f32)>,
-    /// Rolling input frame, `fft_size` samples. Each hop shifts in `hop_size` new ones.
+    /// Rolling input frame; each hop shifts in `hop_size` new samples. Never
+    /// transformed in place, so it stays raw for YIN.
     pub frame: Vec<f32>,
-    /// FFT scratch, real part, `fft_size` entries. Overwritten with the
-    /// windowed frame before every FFT, so `frame` itself is never transformed.
     pub re: Vec<f32>,
-    /// FFT scratch, imaginary part, `fft_size` entries. Zeroed before every FFT.
     pub im: Vec<f32>,
     /// Per-bin noise power `|N[k]|^2` learned from silence, `fft_size / 2` entries.
     /// Zero until learned, which makes spectral subtraction a no-op.
     pub noise_profile: Vec<f32>,
-    /// Smoothed linear magnitudes from the previous hop, `fft_size / 2` entries.
-    /// Linear, not dB, so smoothing averages amplitudes.
     pub smoothed: Vec<f32>,
     /// Bins kept by the band-pass; every bin outside is zeroed. May be empty.
     pub band: Range<usize>,
 }
 
 impl State {
-    /// Allocates every buffer for `config` and precomputes the window and twiddles.
-    /// Everything else starts zero-filled.
     pub fn new(config: &TunerConfig) -> Self {
         let fft_size = config.fft_size as usize;
         let bins = fft_size / 2;
@@ -70,8 +62,8 @@ fn band(config: &TunerConfig, bins: usize) -> Range<usize> {
     low.min(bins)..high.min(bins)
 }
 
-/// Windows `samples` into `re`, zeroes `im` and transforms both in place.
-/// Afterwards bin `k` has power `re[k]^2 + im[k]^2`.
+/// Hann-windowed FFT of `samples` into `re` and `im`: bin `k` has power
+/// `re[k]^2 + im[k]^2`.
 ///
 /// `samples` must yield exactly `fft_size` values: `zip` stops at the shorter
 /// side, so fewer would leave the previous frame's tail in `re`.

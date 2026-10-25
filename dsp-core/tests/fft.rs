@@ -16,7 +16,6 @@ fn twiddles(n: usize) -> Vec<(f32, f32)> {
     twiddles
 }
 
-/// FFT of a real signal, as `(re, im)`.
 fn transform(x: &[f32]) -> (Vec<f32>, Vec<f32>) {
     let mut re = x.to_vec();
     let mut im = vec![0.0; x.len()];

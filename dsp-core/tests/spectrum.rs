@@ -65,7 +65,6 @@ fn noise(amplitude: f32, len: usize, seed: u64) -> Vec<f32> {
         .collect()
 }
 
-/// Feeds `signal` hop by hop and returns the last spectrum.
 fn last_spectrum(tuner: &Tuner, signal: &[f32]) -> Result<Vec<f32>, TunerError> {
     let mut spectrum = Vec::new();
     for hop in signal.as_chunks::<HOP>().0 {
@@ -74,7 +73,6 @@ fn last_spectrum(tuner: &Tuner, signal: &[f32]) -> Result<Vec<f32>, TunerError> 
     Ok(spectrum)
 }
 
-/// Fractional bin index of `hz`.
 fn bin_of(hz: f32) -> f32 {
     hz * FFT_SIZE as f32 / SAMPLE_RATE as f32
 }

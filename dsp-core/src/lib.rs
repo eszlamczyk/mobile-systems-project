@@ -1,7 +1,7 @@
 //! Real-time instrument tuner core: pitch detection and spectrum rendering
 //! exposed to Kotlin and Swift through `UniFFI`.
 
-// Skeleton: every method is still `todo!()`. Remove once they are implemented.
+// `target_spectrum` and YIN are still stubs. Remove once they are implemented.
 #![allow(dead_code, unused_variables)]
 
 use std::sync::Arc;
@@ -20,42 +20,43 @@ uniffi::setup_scaffolding!();
 /// The defaults below are the single source of truth for both apps: the
 /// generated Kotlin and Swift constructors take them as default arguments, so
 /// the apps pass only `sample_rate` and read `hop_size` back for their buffers.
+///
+/// Every float must be finite. The defaults of `alpha`, `beta`, `lambda` and
+/// `epsilon` are chosen arbitrarily (docs/FFT.md section 5).
 #[derive(uniffi::Record)]
 pub struct TunerConfig {
-    /// Device native sample rate in Hz (44100 or 48000). No resampling is done.
+    /// Device native sample rate in Hz (44100 or 48000), non-zero. No resampling
+    /// is done.
     pub sample_rate: u32,
-    /// FFT length in samples. Must be a power of two. 8192 trades latency
+    /// FFT length in samples, a power of two `>= 2`. 8192 trades latency
     /// (171 ms frame at 48 kHz) for accuracy on the low strings (docs/FFT.md).
     #[uniffi(default = 8192)]
     pub fft_size: u32,
-    /// Samples between consecutive frames.
+    /// Samples between consecutive frames, `1..=fft_size`. Every `process` call
+    /// takes exactly this many.
     #[uniffi(default = 1024)]
     pub hop_size: u32,
-    /// Lower edge of the analysis band-pass in Hz.
+    /// Lower edge of the analysis band-pass in Hz, inclusive. `0 <= min_hz < max_hz`.
     #[uniffi(default = 50.0)]
     pub min_hz: f32,
-    /// Upper edge of the analysis band-pass in Hz.
+    /// Upper edge of the analysis band-pass in Hz, inclusive.
     #[uniffi(default = 5000.0)]
     pub max_hz: f32,
     /// Spectral subtraction over-subtraction factor α: subtracts `α` times the
-    /// learned noise power. Must be finite and `>= 0`. Default chosen
-    /// arbitrarily within the usual 1..=2 (docs/FFT.md section 5).
+    /// learned noise power. `>= 0`; the usual range is 1..=2.
     #[uniffi(default = 1.5)]
     pub alpha: f32,
     /// Spectral subtraction floor β: a cleaned bin never drops below `β` times
-    /// the noise magnitude, which stops "musical noise". Must be finite and
-    /// `>= 0`. Default chosen arbitrarily (docs/FFT.md section 5).
+    /// the noise magnitude, which stops "musical noise". `>= 0`.
     #[uniffi(default = 0.01)]
     pub beta: f32,
     /// Temporal smoothing weight λ of the plotted spectrum: each bin keeps `λ`
-    /// of its previous value. Must be in `0..1`; 0 disables smoothing. Default
-    /// chosen arbitrarily (docs/FFT.md section 5).
+    /// of its previous value. In `0..1`; 0 disables smoothing.
     #[uniffi(default = 0.7)]
     pub lambda: f32,
     /// Offset added to the full-scale-normalised magnitude before taking dB, so
     /// a zero bin stays finite: `20 log10(epsilon)` is the bottom of the
-    /// spectrum (-120 dBFS by default). Must be finite and `> 0`. Default chosen
-    /// arbitrarily.
+    /// spectrum (-120 dBFS by default). `> 0`.
     #[uniffi(default = 1e-6)]
     pub epsilon: f32,
 }
@@ -124,11 +125,8 @@ impl Tuner {
     ///
     /// # Errors
     ///
-    /// [`TunerError::InvalidInput`] if `config` is unusable: `sample_rate` is 0,
-    /// `fft_size` is not a power of two of at least 2, `hop_size` is 0 or larger
-    /// than `fft_size`, the band is not `0 <= min_hz < max_hz` with both finite,
-    /// or a constant is out of range: every one must be finite, `alpha >= 0`,
-    /// `beta >= 0`, `0 <= lambda < 1` and `epsilon > 0`.
+    /// [`TunerError::InvalidInput`] if a field of `config` is outside the range
+    /// documented on it.
     #[uniffi::constructor]
     #[allow(clippy::needless_pass_by_value)] // UniFFI passes records by value
     pub fn new(config: TunerConfig) -> Result<Arc<Self>, TunerError> {
@@ -162,15 +160,13 @@ impl Tuner {
     ///
     /// # Errors
     ///
-    /// Never in practice; fallible only so a panic reaches Swift as a throw.
+    /// Never; see [`TunerError`].
     #[uniffi::method]
     pub fn spectrum_size(&self) -> Result<u32, TunerError> {
         Ok(self.config.fft_size / 2)
     }
 
     /// Sets the note the player is tuning to.
-    ///
-    /// Atomic store; safe to call from the UI thread at any time.
     ///
     /// # Errors
     ///
@@ -191,7 +187,7 @@ impl Tuner {
     ///
     /// # Errors
     ///
-    /// Never in practice; fallible only so a panic reaches Swift as a throw.
+    /// Never; see [`TunerError`].
     #[uniffi::method]
     pub fn target_spectrum(&self) -> Result<Vec<f32>, TunerError> {
         todo!()
@@ -200,8 +196,8 @@ impl Tuner {
     /// Learns the noise profile from a recording of silence.
     ///
     /// `pcm` is native-endian `f32` samples as bytes; about one second is enough.
-    /// Averages the power of every `fft_size` frame, one hop apart, exactly as
-    /// `process` measures live frames. Replaces any earlier profile.
+    /// Frames are measured exactly as `process` measures live ones, so the
+    /// profile matches what it is subtracted from. Replaces any earlier profile.
     ///
     /// # Errors
     ///
@@ -218,7 +214,6 @@ impl Tuner {
         }
 
         let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        // Reborrow so the field borrows below split; they cannot through the guard.
         let state = &mut *guard;
 
         state.noise_profile.fill(0.0);
@@ -280,11 +275,9 @@ impl Tuner {
         } = self.config;
 
         let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        // Reborrow so the field borrows below split; they cannot through the guard.
         let state = &mut *guard;
 
-        // Drop the oldest hop and append the new one, measuring its loudness on
-        // the way. RMS covers only the new hop so the gate reacts within a hop.
+        // RMS covers only the new hop so the gate reacts within a hop.
         state.frame.copy_within(hop.., 0);
         let mut energy = 0.0;
         for (sample, &bytes) in state.frame[fft_size - hop..].iter_mut().zip(samples) {
@@ -316,14 +309,12 @@ impl Tuner {
             .enumerate();
         for (k, (((re, im), &noise), smoothed)) in per_bin {
             // Spectral subtraction in the power domain (docs/FFT.md section 5).
-            // Cut bins stay exactly 0 through smoothing, so they sit at the floor.
             let magnitude = if state.band.contains(&k) {
                 let power = re * re + im * im;
                 (power - alpha * noise).max(beta * beta * noise).sqrt()
             } else {
                 0.0
             };
-            // Smooth linear magnitudes, not dB, so it averages amplitudes.
             *smoothed = lambda * *smoothed + (1.0 - lambda) * magnitude;
             let level = 20.0 * (*smoothed * full_scale + epsilon).log10();
             spectrum.extend_from_slice(&level.to_ne_bytes());
