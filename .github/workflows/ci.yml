@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: dsp-core
+
+jobs:
+  checks:
+    name: fmt / clippy / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Installs the toolchain pinned in dsp-core/rust-toolchain.toml.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dsp-core
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  bench:
+    name: bench (per-hop cost)
+    needs: checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dsp-core
+          key: bench
+      - name: Run benches/process.rs
+        run: |
+          cargo bench --bench process -- --output-format bencher | tee bench.txt
+          {
+            echo "### \`Tuner::process\` per-hop cost"
+            echo
+            echo "| bench | time / hop | ± | share of 21.33 ms hop budget |"
+            echo "|---|---|---|---|"
+            # bencher line: test <name> ... bench: <ns> ns/iter (+/- <ns>)
+            grep '^test ' bench.txt | tr -d ',)' | awk '{
+              printf "| %s | %.3f ms | %.3f ms | %.2f%% |\n", $2, $5/1e6, $8/1e6, $5/1e6/(1024/48000*1000)*100
+            }'
+            echo
+            echo "<sub>Shared CI runner, so treat as indicative. Commit ${{ github.event.pull_request.head.sha }}</sub>"
+          } > bench.md
+          cat bench.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment on PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: bench
+          path: dsp-core/bench.md
