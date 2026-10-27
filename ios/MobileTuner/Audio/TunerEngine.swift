@@ -22,7 +22,9 @@ nonisolated final class TunerEngine: @unchecked Sendable {
     private let learnRequested = ManagedAtomic<Bool>(false)
     private var dspThread: Thread?
     private var tuner: Tuner?
+    private var tunerRate: UInt32 = 0
     private let targetMidi = ManagedAtomic<Int32>(69)
+    private var configObserver: NSObjectProtocol?
     
     //plot related
     static let plotPeriodNs: UInt64 = 1_000_000_000 / 30
@@ -43,14 +45,30 @@ nonisolated final class TunerEngine: @unchecked Sendable {
     var isLearningNoise: Bool {
         learnRequested.load(ordering: .acquiring)
     }
-    
+
+    init() {
+        configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) {
+            [weak self] _ in
+            guard let self, dspThread != nil else { return }
+            stop()
+            start()
+        }
+    }
+
+    deinit {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+        }
+    }
+
     func start() {
         guard dspThread == nil else { return }
-        
+
         let session = AVAudioSession.sharedInstance()
-        
+
         do {
             try session.setCategory(.record, mode: .measurement)
+            try? session.setPreferredSampleRate(48_000)
             try session.setActive(true)
         } catch {
             publishError("microphone unavailable: \(error.localizedDescription)")
@@ -76,11 +94,13 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         MainActor.assumeIsolated { self.grid = grid }
         
         var coreError: String?
-        if tuner == nil {
+        if tuner == nil || tunerRate != config.sampleRate {
+            tuner = nil
             do {
                 let t = try Tuner(config: config)
                 try t.setTarget(midiNote: targetMidi.load(ordering: .relaxed))
                 tuner = t
+                tunerRate = config.sampleRate
             } catch {
                 coreError = error.localizedDescription
             }
