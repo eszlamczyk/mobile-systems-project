@@ -9,51 +9,56 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var phase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
-            let learning = model.engine.isLearningNoise
-            let snap = model.engine.latest
-            VStack(alignment: .leading, spacing: 8) {
-                if !model.granted {
-                    Text("Microphone permission denied")
+        VStack(alignment: .leading,spacing: 8) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
+                let learning = model.engine.isLearningNoise
+                let snap = model.engine.latest
+                VStack(alignment: .leading, spacing: 8) {
+                    if !model.granted {
+                        Text("Microphone permission denied")
+                    }
+                    Text("hops: \(snap.hops)")
+                    Text("dropped: \(snap.dropped)")
+                    Text("rms: \(snap.result.map { String($0.rms) } ?? "-")")
+                    Text("pitch: \(snap.result.map { String($0.pitchHz) } ?? "-") Hz")
+                    if let coreError = snap.coreError {
+                        Text("core: \(coreError)")
+                    }
+                    Button(learning ? "Learning noise… stay quiet" : "Calibrate") {
+                        model.engine.requestNoiseLearning()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.granted || learning)
+                    if let noiseError = snap.noiseError {
+                        Text("calibration failed: \(noiseError)")
+                    }
                 }
-                Text("hops: \(snap.hops)")
-                Text("dropped: \(snap.dropped)")
-                Text("rms: \(snap.result.map { String($0.rms) } ?? "-")")
-                Text("pitch: \(snap.result.map { String($0.pitchHz) } ?? "-") Hz")
-                if let coreError = snap.coreError {
-                    Text("core: \(coreError)")
-                }
-                Button(learning ? "Learning noise… stay quiet" : "Calibrate") {
-                    model.engine.requestNoiseLearning()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!model.granted || learning)
-                if let noiseError = snap.noiseError {
-                    Text("calibration failed: \(noiseError)")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding()
+            }
+            .task {
+                await model.requestPermission()
+                if model.granted {
+                    model.engine.start()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding()
-        }
-        .task {
-            await model.requestPermission()
-            if model.granted {
-                model.engine.start()
+            .onChange(of: phase) { _, newPhase in
+                guard model.granted else {
+                    return
+                }
+                if newPhase == .active {
+                    model.engine.start()
+                } else if newPhase == .background {
+                    model.engine.stop()
+                }
             }
-        }
-        .onChange(of: phase) { _, newPhase in
-            guard model.granted else {
-                return
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main)) { note in
+                model.handleInterruption(note)
             }
-            if newPhase == .active {
-                model.engine.start()
-            } else if newPhase == .background {
-                model.engine.stop()
-            }
+            SpectrumPlot(engine: model.engine)
+                .frame(height: 200)
         }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main)) { note in
-            model.handleInterruption(note)
-        }
+        .padding()
     }
 }
 

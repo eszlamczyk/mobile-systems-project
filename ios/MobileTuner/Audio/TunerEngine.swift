@@ -2,6 +2,12 @@ import AVFoundation
 import Atomics
 import DspCore
 
+/// Called on the DSP thread after each plot frame is published (~ 30 times per sec)
+@MainActor protocol PlotObserver: AnyObject {
+    func plotDidUpdate()
+    func ghostDidChange()
+}
+
 nonisolated final class TunerEngine: @unchecked Sendable {
     // ~1 s of silence at 48 kHz with the default hop
     static let noiseHops = 47
@@ -16,7 +22,19 @@ nonisolated final class TunerEngine: @unchecked Sendable {
     private let learnRequested = ManagedAtomic<Bool>(false)
     private var dspThread: Thread?
     private var tuner: Tuner?
-    private var targetMidi: Int32 = 69
+    private let targetMidi = ManagedAtomic<Int32>(69)
+    
+    //plot related
+    static let plotPeriodNs: UInt64 = 1_000_000_000 / 30
+    private let plot = TripleBuffer(size: SpectrumGrid.points)
+    
+    ///Important: this is main thread ONLY.
+    @MainActor weak var plotObserver: PlotObserver?
+    
+    @MainActor private(set) var ghost: [Float]?
+    @MainActor private(set) var grid: SpectrumGrid?
+    
+    @MainActor func latestPlot() -> UnsafeBufferPointer<Float> { plot.latest() }
     
     var latest: Snapshot {
         published.load(ordering: .acquiring)
@@ -51,12 +69,17 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         // Analysis parameters default in dsp-core (TunerConfig); only the rate is ours.
         let config = TunerConfig(sampleRate: UInt32(format.sampleRate))
         let hop = Int(config.hopSize)
-
+        
+        let grid = SpectrumGrid(sampleRate: Float(format.sampleRate), fftSize: Int(config.fftSize), minHz: config.minHz, maxHz: config.maxHz)
+        
+        // start() is only called from UO, so this is main thread, hence this hack is just telling the compiler that
+        MainActor.assumeIsolated { self.grid = grid }
+        
         var coreError: String?
         if tuner == nil {
             do {
                 let t = try Tuner(config: config)
-                try t.setTarget(midiNote: targetMidi)
+                try t.setTarget(midiNote: targetMidi.load(ordering: .relaxed))
                 tuner = t
             } catch {
                 coreError = error.localizedDescription
@@ -81,7 +104,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         
         let error = coreError
         let thread = Thread { [self, tuner] in
-            dspLoop(tuner: tuner, hop: hop, coreError: error)
+            dspLoop(tuner: tuner, hop: hop, grid: grid, coreError: error)
             finished.signal()
         }
         thread.name = "dsp"
@@ -90,7 +113,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         dspThread = thread
     }
     
-    private func dspLoop(tuner: Tuner?, hop: Int, coreError: String?) {
+    private func dspLoop(tuner: Tuner?, hop: Int, grid: SpectrumGrid, coreError: String?) {
         let hopBytes = hop * 4
         var pcm = Data(count: hopBytes)
         var noise = Data(count: Self.noiseHops * hopBytes)
@@ -98,6 +121,8 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         var noiseError: String?
         var hops = 0
         var dropped = 0
+        var ghostMidi: Int32 = -1
+        var nextPlotNs: UInt64 = 0
         while !Thread.current.isCancelled {
             wake.wait()
             while ring.availbale >= hop {
@@ -128,6 +153,14 @@ nonisolated final class TunerEngine: @unchecked Sendable {
                 }
                 published.store(Snapshot(result: result, hops: hops, dropped: dropped, coreError: coreError, noiseError: noiseError), ordering: .releasing)
                 
+                if let tuner, let result {
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    if now >= nextPlotNs {
+                        nextPlotNs = max(nextPlotNs + Self.plotPeriodNs, now)
+                        publishPlot(tuner, result, grid: grid, ghostMidi: &ghostMidi)
+                    }
+                }
+                
                 if runDone {
                     learnRequested.store(false, ordering: .releasing)
                 }
@@ -148,6 +181,35 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         }
     }
     
+    private func publishPlot(_ tuner: Tuner, _ result: TunerResult, grid: SpectrumGrid, ghostMidi: inout Int32) {
+        let midi = targetMidi.load(ordering: .relaxed)
+        var newGhost: [Float]?
+        if midi != ghostMidi {
+            ghostMidi = midi
+            newGhost = ghostFor(tuner, midi, grid)
+        }
+        result.spectrum.withUnsafeBytes {grid.downsample($0, into: plot.backSlot())}
+        plot.publish()
+        DispatchQueue.main.async { [self] in
+            if let newGhost {
+                ghost = newGhost
+                plotObserver?.ghostDidChange()
+            }
+            plotObserver?.plotDidUpdate()
+        }
+    }
+    
+    private func ghostFor(_ tuner: Tuner, _ midi: Int32, _ grid: SpectrumGrid) -> [Float] {
+        [Float](unsafeUninitializedCapacity: SpectrumGrid.points) {out, count in
+            if let target = try? tuner.targetSpectrum() {
+                target.withUnsafeBytes { grid.downsample($0, into: out)}
+            } else {
+                grid.placeholderGhost(midi: midi, into: out)
+            }
+            count = SpectrumGrid.points
+        }
+    }
+    
     func stop() {
         guard let thread = dspThread else { return }
         
@@ -161,7 +223,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
     }
     
     func setTarget(_ midi: Int32) {
-        targetMidi = midi
+        targetMidi.store(midi, ordering: .relaxed)
         try? tuner?.setTarget(midiNote: midi)
     }
     
