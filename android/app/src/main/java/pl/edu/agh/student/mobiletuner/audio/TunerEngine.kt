@@ -11,11 +11,17 @@ import android.media.AudioRecord
 import android.media.MediaRecorder.AudioSource.UNPROCESSED
 import android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION
 import android.os.Process
+import android.util.Log
 import androidx.annotation.RequiresPermission
 import uniffi.dsp_core.Tuner
 import uniffi.dsp_core.TunerConfig
+import uniffi.dsp_core.TunerResult
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.FloatBuffer
+
+// Called on the DSP thread after each plot frame is published (~ 30 times per sec)
+fun interface PlotListener { fun onPlotFrame() }
 
 class TunerEngine(context: Context) : AutoCloseable {
     @Volatile var latest = Snapshot.EMPTY
@@ -41,6 +47,17 @@ class TunerEngine(context: Context) : AutoCloseable {
     private val noise = ByteBuffer.allocateDirect(NOISE_HOPS * hopBytes).order(ByteOrder.nativeOrder())
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
+
+    // plot-related
+    val grid = SpectrumGrid(SAMPLE_RATE_HZ, config.fftSize.toInt(), config.minHz, config.maxHz)
+    val plot = TripleBuffer(SpectrumGrid.POINTS)
+
+    @Volatile var plotListener: PlotListener? = null
+    @Volatile var ghost: FloatArray? = null
+        private set
+
+    private var ghostMidi = -1
+    private var nextPlotNs = 0L
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     fun start() {
@@ -100,6 +117,7 @@ class TunerEngine(context: Context) : AutoCloseable {
             }
 
             latest = Snapshot(result, hops, dropped, coreError)
+            if (t != null && result != null) publishPlot(t, result)
         }
         record.stop()
         record.release()
@@ -121,6 +139,33 @@ class TunerEngine(context: Context) : AutoCloseable {
         }
         noise.clear()
         return true
+    }
+
+    private fun publishPlot(t: Tuner, result: TunerResult) {
+        val now = System.nanoTime()
+        if (now < nextPlotNs) return
+
+        nextPlotNs = maxOf(nextPlotNs + PLOT_PERIOD_NS, now)
+        val midi = targetMidi
+        if (midi != ghostMidi) {
+            ghostMidi = midi
+            ghost = ghostFor(t, midi)
+        }
+        grid.downsample(ByteBuffer.wrap(result.spectrum).order(ByteOrder.nativeOrder()).asFloatBuffer(),
+            plot.back())
+        plot.publish()
+        plotListener?.onPlotFrame()
+    }
+
+    private fun ghostFor(t: Tuner, midi: Int): FloatArray {
+        val out = FloatArray(SpectrumGrid.POINTS)
+        try {
+            grid.downsample(FloatBuffer.wrap(t.targetSpectrum().toFloatArray()), out)
+        } catch (e: Exception) {
+            Log.w("[MOBILE_TUNER]", "target_spectrum is still todo!() in dsp-core")
+            grid.placeholderGhost(midi, out)
+        }
+        return out
     }
 
     fun requestNoiseLearning() {
@@ -154,5 +199,7 @@ class TunerEngine(context: Context) : AutoCloseable {
         const val SAMPLE_RATE_HZ = 48000
         // ~1 s of silence at 48 kHz with the default hop
         const val NOISE_HOPS = 47
+
+        const val PLOT_PERIOD_NS = 1_000_000_000L / 30
     }
 }
