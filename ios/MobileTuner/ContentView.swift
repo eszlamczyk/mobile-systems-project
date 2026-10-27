@@ -33,8 +33,7 @@ struct ContentView: View {
                         Text("calibration failed: \(noiseError)")
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .task {
                 await model.requestPermission()
@@ -58,7 +57,20 @@ struct ContentView: View {
             SpectrumPlot(engine: model.engine)
                 .frame(height: 200)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding()
+        .overlay(alignment: .bottom) {
+            if let toast = model.toast {
+                Text(toast)
+                    .font(.callout)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.thinMaterial, in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.default, value: model.toast)
     }
 }
 

@@ -2,7 +2,7 @@ import AVFoundation
 import Atomics
 import DspCore
 
-/// Called on the DSP thread after each plot frame is published (~ 30 times per sec)
+/// Called on the main thread, plotDidUpdate ~30 times per second.
 @MainActor protocol PlotObserver: AnyObject {
     func plotDidUpdate()
     func ghostDidChange()
@@ -20,6 +20,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
     
     private let published = ManagedAtomic<Snapshot>(.empty)
     private let learnRequested = ManagedAtomic<Bool>(false)
+    private let calibrated = ManagedAtomic<Bool>(false)
     private var dspThread: Thread?
     private var tuner: Tuner?
     private var tunerRate: UInt32 = 0
@@ -35,6 +36,8 @@ nonisolated final class TunerEngine: @unchecked Sendable {
     
     @MainActor private(set) var ghost: [Float]?
     @MainActor private(set) var grid: SpectrumGrid?
+    
+    @MainActor var onCalibrationLost: (@MainActor () -> Void)?
     
     @MainActor func latestPlot() -> UnsafeBufferPointer<Float> { plot.latest() }
     
@@ -95,6 +98,9 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         
         var coreError: String?
         if tuner == nil || tunerRate != config.sampleRate {
+            if calibrated.exchange(false, ordering: .relaxed) {
+                MainActor.assumeIsolated { onCalibrationLost?() }
+            }
             tuner = nil
             do {
                 let t = try Tuner(config: config)
@@ -158,6 +164,9 @@ nonisolated final class TunerEngine: @unchecked Sendable {
                     noiseOffset += hopBytes
                     if noiseOffset == noise.count {
                         noiseError = learnNoise(tuner, noise)
+                        if noiseError == nil {
+                            calibrated.store(true, ordering: .relaxed)
+                        }
                         noiseOffset = 0
                         runDone = true
                     }

@@ -9,20 +9,24 @@ nonisolated struct SpectrumGrid: Sendable {
     
     let minHz: Float
     let maxHz: Float
-    private let bins: Int
     private let first: [Int]
     private let last: [Int]
     private let pos: [Float]
+    private let lo: Int
+    private let hi: Int
     
     init(sampleRate: Float, fftSize: Int, minHz: Float, maxHz: Float) {
         self.minHz = minHz
         self.maxHz = maxHz
-        bins = fftSize / 2
         let hzPerBin = sampleRate / Float(fftSize)
         let hz = { (i: Float) in Self.hz(at: i, minHz: minHz, maxHz: maxHz) }
-        first = (0..<Self.points).map { Int((hz(Float($0) - 0.5) / hzPerBin).rounded(.up)) }
-        last = (0..<Self.points).map { min(Int((hz(Float($0) + 0.5) / hzPerBin).rounded(.down)), fftSize / 2 - 1) }
-        pos = (0..<Self.points).map {hz(Float($0)) / hzPerBin }
+        let lo = Int((minHz / hzPerBin).rounded(.up))
+        let hi = min(Int((maxHz / hzPerBin).rounded(.down)), fftSize / 2 - 1)
+        self.lo = lo
+        self.hi = hi
+        first = (0..<Self.points).map { max(Int((hz(Float($0) - 0.5) / hzPerBin).rounded(.up)), lo) }
+        last = (0..<Self.points).map { min(Int((hz(Float($0) + 0.5) / hzPerBin).rounded(.down)), hi) }
+        pos = (0..<Self.points).map { min(max(hz(Float($0)) / hzPerBin, Float(lo)), Float(hi)) }
     }
     
     static func hz(at i: Float, minHz: Float, maxHz: Float) -> Float {
@@ -34,7 +38,7 @@ nonisolated struct SpectrumGrid: Sendable {
     
     func downsample(_ src: UnsafeRawBufferPointer, into out: UnsafeMutableBufferPointer<Float>) {
         func bin(_ k: Int) -> Float {
-            src.loadUnaligned(fromByteOffset: min(max(k,0), bins - 1) * 4, as: Float.self)
+            src.loadUnaligned(fromByteOffset: min(max(k, lo), hi) * 4, as: Float.self)
         }
         
         for i in 0..<Self.points {

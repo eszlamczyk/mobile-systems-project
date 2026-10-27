@@ -13,13 +13,17 @@ class SpectrumGrid(sampleRate: Int, fftSize: Int, private val minHz: Float, priv
     private val first = IntArray(POINTS)
     private val last = IntArray(POINTS)
     private val pos = FloatArray(POINTS)
+    private val lo: Int
+    private val hi: Int
 
     init {
         val hzPerBin = sampleRate.toFloat() / fftSize
+        lo = ceil(minHz / hzPerBin).toInt()
+        hi = minOf(floor(maxHz / hzPerBin).toInt(), bins - 1)
         for (i in 0 until POINTS) {
-            first[i] = ceil(hzAt(i - 0.5f) / hzPerBin).toInt()
-            last[i] = minOf(floor(hzAt(i + 0.5f) / hzPerBin).toInt(), bins - 1)
-            pos[i] = hzAt(i.toFloat()) / hzPerBin
+            first[i] = maxOf(ceil(hzAt(i - 0.5f) / hzPerBin).toInt(), lo)
+            last[i] = minOf(floor(hzAt(i + 0.5f) / hzPerBin).toInt(), hi)
+            pos[i] = (hzAt(i.toFloat()) / hzPerBin).coerceIn(lo.toFloat(), hi.toFloat())
         }
     }
 
@@ -60,10 +64,10 @@ class SpectrumGrid(sampleRate: Int, fftSize: Int, private val minHz: Float, priv
     private fun catmullRom(src: FloatBuffer, x: Float): Float {
         val k = x.toInt()
         val t = x - k
-        val p0 = src.get((k - 1).coerceIn(0, bins - 1))
-        val p1 = src.get(k.coerceIn(0, bins - 1))
-        val p2 = src.get((k+1).coerceAtMost(bins - 1))
-        val p3 = src.get((k+2).coerceAtMost(bins - 1))
+        val p0 = src.get((k - 1).coerceIn(lo, hi))
+        val p1 = src.get(k.coerceIn(lo, hi))
+        val p2 = src.get((k + 1).coerceIn(lo, hi))
+        val p3 = src.get((k + 2).coerceIn(lo, hi))
 
         return p1 + 0.5f * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)))
     }
