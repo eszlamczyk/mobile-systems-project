@@ -17,6 +17,20 @@ defaults:
     working-directory: dsp-core
 
 jobs:
+  presets:
+    name: Kotlin / Swift preset parity
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: python3 scripts/check-presets.py
+
   checks:
     name: fmt / clippy / test
     runs-on: ubuntu-latest
