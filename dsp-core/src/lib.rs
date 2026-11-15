@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 pub mod fft;
+pub mod music;
 mod state;
 
 use state::{State, transform};
