@@ -40,10 +40,10 @@ def check(kotlin, swift):
     )
     swift_entries = extract(
         swift, r'switch self\s*\{(.*?)\}',
-        rf'\s*case\s+\.(\w+)\s*:\s*return\s+TuningPreset\(\s*name:\s*({STRING})\s*,\s*notes:\s*\[\s*({NOTES})\s*\]\s*\)',
+        rf'\s*case\s+\.(\w+)\s*:\s*return\s+Preset\(\s*name:\s*({STRING})\s*,\s*notes:\s*\[\s*({NOTES})\s*\]\s*\)',
         'Swift',
     )
-    declarations = re.search(r'enum Preset\b[^{]*\{(.*?)\bvar tuning', swift, re.DOTALL)
+    declarations = re.search(r'enum BuiltInPreset\b[^{]*\{(.*?)\bvar tuning', swift, re.DOTALL)
     if declarations is None:
         raise ValueError('Swift: enum cases not found')
     case_groups = re.findall(r'\bcase\s+(\w+(?:\s*,\s*\w+)*)', declarations.group(1))
@@ -59,7 +59,7 @@ def main():
     root = Path(__file__).resolve().parent.parent
     try:
         kotlin = (root / 'android/app/src/main/java/pl/edu/agh/student/mobiletuner/Preset.kt').read_text(encoding='utf-8')
-        swift = (root / 'ios/MobileTuner/Preset.swift').read_text(encoding='utf-8')
+        swift = (root / 'ios/MobileTuner/Model/BuiltInPreset.swift').read_text(encoding='utf-8')
         count = check(kotlin, swift)
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)

@@ -9,7 +9,7 @@ checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
 ROOT = SCRIPT.parent.parent
 KOTLIN = (ROOT / 'android/app/src/main/java/pl/edu/agh/student/mobiletuner/Preset.kt').read_text(encoding='utf-8')
-SWIFT = (ROOT / 'ios/MobileTuner/Preset.swift').read_text(encoding='utf-8')
+SWIFT = (ROOT / 'ios/MobileTuner/Model/BuiltInPreset.swift').read_text(encoding='utf-8')
 
 
 class PresetSyncTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class PresetSyncTests(unittest.TestCase):
                 checker.check(KOTLIN, SWIFT.replace(before, after))
 
     def test_missing_mapping_and_extra_case_fail(self):
-        changed = SWIFT.replace('case .violin: return TuningPreset(name: "Violin", notes: [55, 62, 69, 76])', '')
+        changed = SWIFT.replace('case .violin: return Preset(name: "Violin", notes: [55, 62, 69, 76])', '')
         with self.assertRaisesRegex(ValueError, 'declared cases'):
             checker.check(KOTLIN, changed)
         with self.assertRaises(ValueError):
