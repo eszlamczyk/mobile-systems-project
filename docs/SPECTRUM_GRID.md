@@ -42,8 +42,8 @@ Per frame, for each point:
 
 $$y = p_1 + \tfrac{1}{2} t \big(p_2 - p_0 + t (2p_0 - 5p_1 + 4p_2 - p_3 + t (3(p_1 - p_2) + p_3 - p_0))\big).$$
 
-Cells get narrower than a bin below $f \approx \Delta / \ln r^{1/(P-1)}$. With the defaults
-($f_s = 48000$, $N = 8192$, 50 to 5000 Hz) that is about 508 Hz, the band is bins 9 to 853,
+Cells get narrower than a bin below $f \approx \Delta / \ln r^{1/(P-1)}$. With a 50 to 5000 Hz band
+($f_s = 48000$, $N = 8192$) that is about 508 Hz, the band is bins 9 to 853,
 and 123 of the 400 points are interpolated.
 
 ## 4. Normalisation

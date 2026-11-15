@@ -4,7 +4,7 @@
 - [x] `State` struct (window, twiddles, frame, noise profile) in its own module
 - [x] `src/bin/uniffi-bindgen.rs` calling `uniffi::uniffi_bindgen_main()` so generated bindings always match the runtime
 - [x] `[profile.release]` with `lto = "fat"`, `codegen-units = 1` (never `panic = "abort"`, UniFFI must catch panics)
-- [ ] Fill in `tests/pitch.rs` (sine in, pitch out) and `benches/process.rs` once `process` exists; both are placeholders
+- [x] Fill in `tests/pitch.rs` with synthetic pitch detection and gate regressions
 - [x] `process` returns the spectrum in `TunerResult::spectrum` until `&mut [u8]` ships
 - [x] Every exported method returns `Result<_, TunerError>` so Swift can catch panics (non-throwing calls go through `try!`)
 - [ ] Recover `Mutex<State>` from poisoning (`lock().unwrap_or_else(PoisonError::into_inner)`), or one panic fails every later frame

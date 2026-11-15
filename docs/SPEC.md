@@ -64,7 +64,7 @@ pub struct TunerConfig {
     pub sample_rate: u32,   // device native rate (44100 or 48000), no resampling
     pub fft_size: u32,      // power of two, default 8192
     pub hop_size: u32,      // samples between frames, default 1024
-    pub min_hz: f32,        // band-pass, default 50
+    pub min_hz: f32,        // band-pass, default 30 (includes bass E1)
     pub max_hz: f32,        // band-pass, default 5000
     pub alpha: f32,         // spectral subtraction over-subtraction, default 1.5, >= 0
     pub beta: f32,          // spectral subtraction floor, default 0.01, >= 0

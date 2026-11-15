@@ -15,7 +15,7 @@ fn config() -> TunerConfig {
         sample_rate: 48_000,
         fft_size: 8192,
         hop_size: 1024,
-        min_hz: 50.0,
+        min_hz: 30.0,
         max_hz: 5000.0,
         alpha: 1.5,
         beta: 0.01,

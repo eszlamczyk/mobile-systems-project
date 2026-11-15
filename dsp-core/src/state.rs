@@ -14,6 +14,7 @@ pub struct State {
     /// Rolling input frame; each hop shifts in `hop_size` new samples. Never
     /// transformed in place, so it stays raw for YIN.
     pub frame: Vec<f32>,
+    pub difference: Vec<f32>,
     pub re: Vec<f32>,
     pub im: Vec<f32>,
     /// Per-bin noise power `|N[k]|^2` learned from silence, `fft_size / 2` entries.
@@ -37,6 +38,7 @@ impl State {
             window,
             twiddles,
             frame: vec![0.0; fft_size],
+            difference: vec![0.0; fft_size / 2 + 1],
             re: vec![0.0; fft_size],
             im: vec![0.0; fft_size],
             noise_profile: vec![0.0; bins],

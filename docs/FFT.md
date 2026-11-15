@@ -79,12 +79,12 @@ Refine $\tau$ with the parabola from section 3 on $d'(\tau-1), d'(\tau), d'(\tau
 
 $$f = \frac{f_s}{\tau}, \qquad \mathrm{confidence} = 1 - d'(\tau).$$
 
-Search range $\tau \in [f_s / f_{\max},\ f_s / f_{\min}]$, about 10 to 960 at 48 kHz.
-Cost $O(W \cdot \tau_{\max}) \approx 4 \cdot 10^6$ multiply-adds per frame at $N = 8192$, a couple of milliseconds on a phone.
+Search range $\tau \in [f_s / f_{\max},\ f_s / f_{\min}]$, about 10 to 1600 at 48 kHz with the default 30 to 5000 Hz band.
+Cost $O(W \cdot \tau_{\max}) \approx 6.6 \cdot 10^6$ multiply-adds per frame at $N = 8192$, using preallocated difference storage.
 The larger $N$ is what buys accuracy here: $W = 4096$ covers about 7 periods of E2 (82 Hz) instead of 3.5, so $d(\tau)$ averages out more noise.
 If that ever matters, $d(\tau) = r(0) + r_\tau(0) - 2r(\tau)$ with $r$ the autocorrelation, which the FFT gives in $O(N \log N)$.
 
-Gate: if the frame RMS is below a threshold, report `pitch_hz = 0` and keep the previous display.
+Gate: if the newest hop RMS is below 0.001 (-60 dBFS), report `pitch_hz = 0` and keep the previous display.
 
 ## 5. Noise removal: spectral subtraction
 

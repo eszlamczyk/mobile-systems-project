@@ -1,7 +1,7 @@
 //! Real-time instrument tuner core: pitch detection and spectrum rendering
 //! exposed to Kotlin and Swift through `UniFFI`.
 
-// `target_spectrum` and YIN are still stubs. Remove once they are implemented.
+// `target_spectrum` is still a stub. Remove once it is implemented.
 #![allow(dead_code, unused_variables)]
 
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use std::sync::{Mutex, PoisonError};
 
 pub mod fft;
 pub mod music;
+mod pitch;
 mod state;
 
 use state::{State, transform};
@@ -38,7 +39,7 @@ pub struct TunerConfig {
     #[uniffi(default = 1024)]
     pub hop_size: u32,
     /// Lower edge of the analysis band-pass in Hz, inclusive. `0 <= min_hz < max_hz`.
-    #[uniffi(default = 50.0)]
+    #[uniffi(default = 30.0)]
     pub min_hz: f32,
     /// Upper edge of the analysis band-pass in Hz, inclusive.
     #[uniffi(default = 5000.0)]
@@ -321,12 +322,28 @@ impl Tuner {
             spectrum.extend_from_slice(&level.to_ne_bytes());
         }
 
-        // TODO: YIN on `state.frame` for pitch, confidence and cents (docs/FFT.md section 4).
+        let (pitch_hz, confidence) = pitch::detect(
+            &state.frame,
+            &mut state.difference,
+            self.config.sample_rate,
+            self.config.min_hz,
+            self.config.max_hz,
+            rms,
+        );
+        let (cents, nearest_midi) = if pitch_hz > 0.0 {
+            let target = self.target_midi.load(Ordering::Relaxed);
+            (
+                music::cents(pitch_hz, music::midi_to_hz(target)),
+                music::nearest_midi(pitch_hz),
+            )
+        } else {
+            (0.0, 0)
+        };
         Ok(TunerResult {
-            pitch_hz: 0.0,
-            cents: 0.0,
-            nearest_midi: 0,
-            confidence: 0.0,
+            pitch_hz,
+            cents,
+            nearest_midi,
+            confidence,
             rms,
             spectrum,
         })
