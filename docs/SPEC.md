@@ -66,9 +66,14 @@ pub struct TunerConfig {
     pub hop_size: u32,      // samples between frames, default 1024
     pub min_hz: f32,        // band-pass, default 50
     pub max_hz: f32,        // band-pass, default 5000
+    pub alpha: f32,         // spectral subtraction over-subtraction, default 1.5, >= 0
+    pub beta: f32,          // spectral subtraction floor, default 0.01, >= 0
+    pub lambda: f32,        // spectrum smoothing weight, default 0.7, in 0..1
+    pub epsilon: f32,       // offset before dB so zero bins stay finite, default 1e-6 (-120 dBFS floor), > 0
 }
 // Defaults are `#[uniffi(default = ...)]`, so they become constructor default arguments in Kotlin and Swift.
 // The apps pass only `sample_rate` and size their buffers from `hop_size`; the core is the one place to tune.
+// The defaults of alpha, beta, lambda and epsilon are chosen arbitrarily (FFT.md section 5); `new` rejects non-finite or out-of-range values.
 
 #[derive(uniffi::Record)]
 pub struct TunerResult {
@@ -77,7 +82,7 @@ pub struct TunerResult {
     pub nearest_midi: i32,  // nearest note to pitch_hz
     pub confidence: f32,    // 0 .. 1 from YIN
     pub rms: f32,           // input loudness, drives the gate
-    pub spectrum: Vec<u8>,  // fft_size / 2 magnitudes as f32 bytes; ByteArray on Kotlin, Data on Swift
+    pub spectrum: Vec<u8>,  // fft_size / 2 levels in dBFS as f32 bytes (full-scale sine = 0); ByteArray on Kotlin, Data on Swift
 }
 
 #[derive(uniffi::Error)]
@@ -98,7 +103,7 @@ impl Tuner {
     pub fn spectrum_size(&self) -> Result<u32, TunerError>;            // fft_size / 2
     pub fn set_target(&self, midi_note: i32) -> Result<(), TunerError>; // atomic store, no lock
     pub fn target_spectrum(&self) -> Result<Vec<f32>, TunerError>;     // grey ghost comb, UI thread, on target change
-    pub fn learn_noise(&self, pcm: &[u8]) -> Result<(), TunerError>;   // ~1 s of silence
+    pub fn learn_noise(&self, pcm: &[u8]) -> Result<(), TunerError>;   // ~1 s of silence, at least one fft_size frame
     pub fn process(&self, pcm: &[u8]) -> Result<TunerResult, TunerError>;
                                                         // pcm: one hop of f32 samples as bytes
 }
