@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Fail when the Kotlin and Swift built-in tuning presets differ."""
 
 import json
 from pathlib import Path
@@ -12,7 +11,6 @@ NOTES = r'\d+(?:\s*,\s*\d+)*\s*,?'
 
 
 def extract(text, body_pattern, entry_pattern, language):
-    """Read the deliberately literal preset declarations; reject unparsed entries."""
     text = re.sub(r'//[^\n]*', '', text)
     body = re.search(body_pattern, text, re.DOTALL)
     if body is None:

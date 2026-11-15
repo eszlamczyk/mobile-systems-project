@@ -1,5 +1,3 @@
-"""Behavior checks for the preset CI guard, using the actual app declarations."""
-
 import importlib.util
 from pathlib import Path
 import unittest
