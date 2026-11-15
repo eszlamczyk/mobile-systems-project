@@ -112,6 +112,11 @@ nonisolated final class TunerEngine: @unchecked Sendable {
             }
         }
         
+        MainActor.assumeIsolated {
+            ghost = tuner.flatMap { ghostFor($0, grid) }
+            plotObserver?.ghostDidChange()
+        }
+
         input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(hop), format: format) {
             [ring, wake] buffer, _ in
             guard let channel = buffer.floatChannelData?[0] else {
@@ -147,7 +152,6 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         var noiseError: String?
         var hops = 0
         var dropped = 0
-        var ghostMidi: Int32 = -1
         var nextPlotNs: UInt64 = 0
         while !Thread.current.isCancelled {
             wake.wait()
@@ -186,7 +190,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
                     let now = DispatchTime.now().uptimeNanoseconds
                     if now >= nextPlotNs {
                         nextPlotNs = max(nextPlotNs + Self.plotPeriodNs, now)
-                        publishPlot(tuner, result, grid: grid, ghostMidi: &ghostMidi)
+                        publishPlot(result, grid: grid)
                     }
                 }
                 
@@ -210,31 +214,18 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         }
     }
     
-    private func publishPlot(_ tuner: Tuner, _ result: TunerResult, grid: SpectrumGrid, ghostMidi: inout Int32) {
-        let midi = targetMidi.load(ordering: .relaxed)
-        var newGhost: [Float]?
-        if midi != ghostMidi {
-            ghostMidi = midi
-            newGhost = ghostFor(tuner, midi, grid)
-        }
+    private func publishPlot(_ result: TunerResult, grid: SpectrumGrid) {
         result.spectrum.withUnsafeBytes {grid.downsample($0, into: plot.backSlot())}
         plot.publish()
         DispatchQueue.main.async { [self] in
-            if let newGhost {
-                ghost = newGhost
-                plotObserver?.ghostDidChange()
-            }
             plotObserver?.plotDidUpdate()
         }
     }
     
-    private func ghostFor(_ tuner: Tuner, _ midi: Int32, _ grid: SpectrumGrid) -> [Float] {
-        [Float](unsafeUninitializedCapacity: SpectrumGrid.points) {out, count in
-            if let target = try? tuner.targetSpectrum() {
-                target.withUnsafeBytes { grid.downsample($0, into: out)}
-            } else {
-                grid.placeholderGhost(midi: midi, into: out)
-            }
+    private func ghostFor(_ tuner: Tuner, _ grid: SpectrumGrid) -> [Float]? {
+        guard let target = try? tuner.targetSpectrum() else { return nil }
+        return [Float](unsafeUninitializedCapacity: SpectrumGrid.points) { out, count in
+            target.withUnsafeBytes { grid.downsample($0, into: out) }
             count = SpectrumGrid.points
         }
     }
@@ -251,9 +242,18 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
     
-    func setTarget(_ midi: Int32) {
+    @MainActor func setTarget(_ midi: Int32) {
+        guard (0...127).contains(midi), midi != targetMidi.load(ordering: .relaxed) else { return }
+        do {
+            try tuner?.setTarget(midiNote: midi)
+        } catch {
+            return
+        }
         targetMidi.store(midi, ordering: .relaxed)
-        try? tuner?.setTarget(midiNote: midi)
+        if let tuner, let grid {
+            ghost = ghostFor(tuner, grid)
+            plotObserver?.ghostDidChange()
+        }
     }
     
     func requestNoiseLearning() { learnRequested.store(true, ordering: .releasing) }

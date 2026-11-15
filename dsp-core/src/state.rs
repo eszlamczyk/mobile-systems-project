@@ -57,7 +57,7 @@ impl State {
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
-fn band(config: &TunerConfig, bins: usize) -> Range<usize> {
+pub(crate) fn band(config: &TunerConfig, bins: usize) -> Range<usize> {
     let hz_to_bin = config.fft_size as f32 / config.sample_rate as f32;
     let low = (config.min_hz * hz_to_bin).ceil() as usize;
     let high = ((config.max_hz * hz_to_bin).floor() as usize).saturating_add(1);

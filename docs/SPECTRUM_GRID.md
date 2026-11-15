@@ -52,6 +52,7 @@ $$v_i = \mathrm{clamp}\!\left(\frac{y_i - DB_{\min}}{DB_{\max} - DB_{\min}}, 0, 
 
 ## 5. Ghost
 
-The target spectrum goes through the same `downsample`, recomputed only when the target note changes.
-Until the core implements `target_spectrum`, `placeholderGhost` draws Gaussian-ish bumps in semitones at
-each harmonic $n f_0$ below $f_{\max}$, starting at $-20$ dB and falling $20\log_{10} n$ per harmonic.
+The core returns eight harmonics with a 1/k magnitude roll-off, shaped by the symmetric Hann main lobe
+and clipped to the analysis band and frequencies below Nyquist. Levels use the same dBFS scale and
+epsilon floor as the live spectrum. Both apps pass the target through the same `downsample`, recomputed
+when the engine starts or the target note changes.

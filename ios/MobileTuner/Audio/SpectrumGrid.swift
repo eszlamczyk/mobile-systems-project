@@ -5,7 +5,6 @@ nonisolated struct SpectrumGrid: Sendable {
     static let points = 400
     static let dbMin: Float = -100
     static let dbMax: Float = 0
-    private static let placeholderDb: Float = -20
     
     let minHz: Float
     let maxHz: Float
@@ -52,22 +51,6 @@ nonisolated struct SpectrumGrid: Sendable {
                 let t = pos[i] - Float(k)
                 let p0 = bin(k - 1), p1 = bin(k), p2 = bin(k+1), p3 = bin(k+2)
                 db = p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)))
-            }
-            out[i] = Self.normalise(db)
-        }
-    }
-    
-    ///TODO: REMOVE - placeholder until target_spectrum
-    func placeholderGhost(midi: Int32, into out: UnsafeMutableBufferPointer<Float>) {
-        let f0 = 440 * pow(2, Float(midi - 69) / 12)
-        for i in 0..<Self.points {
-            let f = Self.hz(at: Float(i), minHz: minHz, maxHz: maxHz)
-            var db = Self.dbMin
-            var n: Float = 1
-            while n * f0 <= maxHz {
-                let semis = 12 * log2(f / (n * f0))
-                db = max(db, Self.placeholderDb - 20 * log10(n) - 40 * semis * semis)
-                n += 1
             }
             out[i] = Self.normalise(db)
         }
