@@ -1,28 +1,16 @@
-//! Equal-tempered note math at A4 = 440 Hz (docs/MUSIC.md section 1).
-
-/// Frequency in Hz of a MIDI note, with A4 (69) at 440 Hz.
-///
-/// `midi_note` must be in 0..=127, as validated by `Tuner::set_target`.
-#[allow(clippy::cast_precision_loss)] // MIDI 0..=127 converts to f32 exactly.
+#![allow(missing_docs)]
+#[allow(clippy::cast_precision_loss)]
 #[must_use]
 pub fn midi_to_hz(midi_note: i32) -> f32 {
     440.0 * 2.0_f32.powf((midi_note as f32 - 69.0) / 12.0)
 }
 
-/// MIDI note nearest to a finite, positive frequency in Hz.
-///
-/// Callers must gate silence and failed detections before calling this helper.
-/// The result is not clamped to 0..=127; it describes the detected pitch.
-#[allow(clippy::cast_possible_truncation)] // Round before converting to an integer.
+#[allow(clippy::cast_possible_truncation)]
 #[must_use]
 pub fn nearest_midi(pitch_hz: f32) -> i32 {
     (69.0 + 12.0 * (pitch_hz.log2() - 440.0_f32.log2())).round() as i32
 }
 
-/// Signed cents from `target_hz` to `pitch_hz`, both finite and positive.
-///
-/// Positive means sharp and negative means flat. The result is unbounded;
-/// saturating the display color is the UI's responsibility.
 #[must_use]
 pub fn cents(pitch_hz: f32, target_hz: f32) -> f32 {
     1200.0 * (pitch_hz.log2() - target_hz.log2())
@@ -64,7 +52,6 @@ mod tests {
 
     #[test]
     fn nearest_note_rounds_on_both_sides_of_a_semitone_midpoint() {
-        // A4 + 49 cents, A4 + 51 cents, A4 - 49 cents, A4 - 51 cents.
         for (hz, expected) in [
             (452.631_47, 69),
             (453.154_66, 70),
