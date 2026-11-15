@@ -5,6 +5,24 @@ import Observation
 final class TunerModel {
     let engine = TunerEngine()
     var granted = AVAudioApplication.shared.recordPermission == .granted
+    private(set) var toast: String?
+    private var toastTask: Task<Void, Never>?
+
+    init() {
+        engine.onCalibrationLost = { [weak self] in
+            self?.showToast("Audio device changed, calibrate again")
+        }
+    }
+
+    func showToast(_ message: String) {
+        toast = message
+        toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
+    }
 
     func requestPermission() async {
         if granted {

@@ -11,6 +11,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
@@ -30,6 +32,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import pl.edu.agh.student.mobiletuner.audio.TunerEngine
 import pl.edu.agh.student.mobiletuner.ui.theme.MobileTunerTheme
+import pl.edu.agh.student.mobiletuner.ui.theme.SpectrumPlot
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,6 +96,7 @@ fun DebugScreen(modifier: Modifier = Modifier, vm: TunerViewModel = viewModel())
             Text(if (learning) "Learning noise… stay quiet" else "Calibrate")
         }
         noiseError?.let { Text("calibration failed: $it") }
+        SpectrumPlot(vm.engine, Modifier.fillMaxWidth().height(200.dp))
     }
 }
 
