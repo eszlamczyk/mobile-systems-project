@@ -1,10 +1,8 @@
-/// UI value shared by built-in tunings and any future custom tuning.
 struct TuningPreset {
     let name: String
     let notes: [Int32]
 }
 
-/// String order follows the instrument, not ascending pitch (ukulele uses re-entrant G4).
 enum Preset: String, CaseIterable {
     case eStandard, halfStepDown, fullStepDown, dropD, dropC, dropB
     case openG, openD, openE, openC, dadgad, bass4String, ukulele, violin
