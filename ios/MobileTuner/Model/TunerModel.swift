@@ -65,7 +65,9 @@ final class TunerModel {
         micDenied = !micGranted
     }
 
+    /// No-op without microphone permission.
     func start() {
+        guard micGranted else { return }
         engine.start()
     }
 
@@ -95,7 +97,7 @@ final class TunerModel {
         case .ended:
             let rawOptions = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
-            if micGranted && options.contains(.shouldResume) {
+            if options.contains(.shouldResume) {
                 start()
             }
         @unknown default:

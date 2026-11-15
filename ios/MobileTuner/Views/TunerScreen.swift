@@ -9,14 +9,9 @@ struct TunerScreen: View {
         content
         .task {
             await model.requestPermission()
-            if model.micGranted {
-                model.start()
-            }
+            model.start()
         }
         .onChange(of: phase) { _, newPhase in
-            guard model.micGranted else {
-                return
-            }
             if newPhase == .active {
                 model.start()
             } else if newPhase == .background {
