@@ -14,7 +14,6 @@ pub struct State {
     /// Rolling input frame; each hop shifts in `hop_size` new samples. Never
     /// transformed in place, so it stays raw for YIN.
     pub frame: Vec<f32>,
-    /// YIN cumulative mean-normalised differences, including both neighbours.
     pub difference: Vec<f32>,
     pub re: Vec<f32>,
     pub im: Vec<f32>,

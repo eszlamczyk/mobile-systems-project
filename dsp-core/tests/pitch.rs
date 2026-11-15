@@ -1,4 +1,4 @@
-//! Pitch detection through the public API, using independent f64 synthesis.
+//! End-to-end pitch detection on synthesized input.
 
 #![allow(
     clippy::cast_precision_loss,
@@ -95,7 +95,6 @@ fn default_hops_report_signed_detuning_against_the_selected_target() -> Result<(
             }
         }
     }
-    // Cents are against the chosen target, rather than the nearest note.
     tuner.set_target(52)?;
     let result = tuner.process(&sine_hop(
         8192,

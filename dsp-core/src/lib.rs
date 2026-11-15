@@ -39,7 +39,6 @@ pub struct TunerConfig {
     #[uniffi(default = 1024)]
     pub hop_size: u32,
     /// Lower edge of the analysis band-pass in Hz, inclusive. `0 <= min_hz < max_hz`.
-    /// 30 Hz includes the lowest preset note, bass E1 (41.2 Hz).
     #[uniffi(default = 30.0)]
     pub min_hz: f32,
     /// Upper edge of the analysis band-pass in Hz, inclusive.

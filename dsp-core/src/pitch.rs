@@ -1,13 +1,7 @@
-//! YIN pitch detection on the unwindowed rolling input frame.
-
 const THRESHOLD: f32 = 0.1;
-/// -60 dBFS: do not interpret very quiet input as a pitched note.
 const RMS_GATE: f32 = 0.001;
-/// One cent: the specified accuracy budget for interpolation at inclusive band edges.
 const MAX_BAND_ERROR_RATIO: f32 = 1.000_577_8;
 
-/// Returns `(frequency, confidence)`, or zeros when gated or no period is found.
-/// `difference` is allocated with `frame.len() / 2 + 1` entries at construction.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -32,7 +26,6 @@ pub(crate) fn detect(
         return (0.0, 0.0);
     }
 
-    // Normalisation needs every lag from 1, even below the search range.
     difference[0] = 1.0;
     let mut running_sum = 0.0;
     for lag in 1..=last + 1 {
