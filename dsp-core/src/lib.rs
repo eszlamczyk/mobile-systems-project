@@ -1,7 +1,6 @@
 //! Real-time instrument tuner core: pitch detection and spectrum rendering
 //! exposed to Kotlin and Swift through `UniFFI`.
 
-// `target_spectrum` is still a stub. Remove once it is implemented.
 #![allow(dead_code, unused_variables)]
 
 use std::sync::Arc;
@@ -192,7 +191,10 @@ impl Tuner {
     /// Never; see [`TunerError`].
     #[uniffi::method]
     pub fn target_spectrum(&self) -> Result<Vec<f32>, TunerError> {
-        todo!()
+        Ok(music::target_spectrum(
+            &self.config,
+            self.target_midi.load(Ordering::Relaxed),
+        ))
     }
 
     /// Learns the noise profile from a recording of silence.

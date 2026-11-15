@@ -3,7 +3,6 @@ package pl.edu.agh.student.mobiletuner.audio
 import java.nio.FloatBuffer
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlin.math.log10
 import kotlin.math.log2
 import kotlin.math.pow
 
@@ -45,21 +44,6 @@ class SpectrumGrid(sampleRate: Int, fftSize: Int, private val minHz: Float, priv
         }
     }
 
-    // TODO: REMOVE - Placeholder unstill dsp-core implements target_spectrum
-    fun placeholderGhost(midi: Int, out: FloatArray) {
-        val f0 = 440f * 2f.pow((midi - 69) / 12f)
-        for (i in 0 until POINTS) {
-            val f = hzAt(i.toFloat())
-            var db = DB_MIN
-            var n = 1
-            while (n * f0 <= maxHz) {
-                val semis = 12f * log2(f/(n*f0))
-                db = maxOf(db, PLACEHOLDER_DB - 20f * log10(n.toFloat()) - 40f * semis * semis)
-                n++
-            }
-            out[i] = normalise(db) }
-    }
-
     // https://en.wikipedia.org/wiki/Catmull%E2%80%93Rom_spline
     private fun catmullRom(src: FloatBuffer, x: Float): Float {
         val k = x.toInt()
@@ -78,6 +62,5 @@ class SpectrumGrid(sampleRate: Int, fftSize: Int, private val minHz: Float, priv
         const val POINTS = 400
         const val DB_MIN = -100f
         const val DB_MAX = 0
-        private const val PLACEHOLDER_DB = -20f
     }
 }
