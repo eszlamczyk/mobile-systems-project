@@ -134,8 +134,9 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         }
         
         let error = coreError
+        let stabilizer = PitchStabilizer(hopsPerSecond: format.sampleRate / Double(hop))
         let thread = Thread { [self, tuner] in
-            dspLoop(tuner: tuner, hop: hop, grid: grid, coreError: error)
+            dspLoop(tuner: tuner, hop: hop, grid: grid, stabilizer: stabilizer, coreError: error)
             finished.signal()
         }
         thread.name = "dsp"
@@ -144,7 +145,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         dspThread = thread
     }
     
-    private func dspLoop(tuner: Tuner?, hop: Int, grid: SpectrumGrid, coreError: String?) {
+    private func dspLoop(tuner: Tuner?, hop: Int, grid: SpectrumGrid, stabilizer: PitchStabilizer, coreError: String?) {
         let hopBytes = hop * 4
         var pcm = Data(count: hopBytes)
         var noise = Data(count: Self.noiseHops * hopBytes)
@@ -153,6 +154,7 @@ nonisolated final class TunerEngine: @unchecked Sendable {
         var hops = 0
         var dropped = 0
         var nextPlotNs: UInt64 = 0
+        var stabilizedTarget = targetMidi.load(ordering: .relaxed)
         while !Thread.current.isCancelled {
             wake.wait()
             while ring.availbale >= hop {
@@ -184,7 +186,14 @@ nonisolated final class TunerEngine: @unchecked Sendable {
                         dropped += 1
                     }
                 }
-                published.store(Snapshot(result: result, hops: hops, dropped: dropped, coreError: coreError, noiseError: noiseError), ordering: .releasing)
+                // Cents are relative to the target, so a new target starts a new reading.
+                let target = targetMidi.load(ordering: .relaxed)
+                if target != stabilizedTarget {
+                    stabilizer.reset()
+                    stabilizedTarget = target
+                }
+                let reading = stabilizer.update(pitchHz: result?.pitchHz ?? 0, cents: result?.cents ?? 0)
+                published.store(Snapshot(result: result, reading: reading, hops: hops, dropped: dropped, coreError: coreError, noiseError: noiseError), ordering: .releasing)
                 
                 if let tuner, let result {
                     let now = DispatchTime.now().uptimeNanoseconds
