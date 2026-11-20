@@ -54,8 +54,6 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
-// Builds dsp-core (.so into jniLibs) and generates the Kotlin bindings before every build.
-// Up to date, and skipped, while nothing in dsp-core changes.
 val repoRoot = rootDir.parentFile
 val buildRust by tasks.registering(Exec::class) {
     workingDir = repoRoot

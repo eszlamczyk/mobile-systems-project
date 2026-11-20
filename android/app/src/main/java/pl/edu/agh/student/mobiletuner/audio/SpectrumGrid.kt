@@ -28,7 +28,6 @@ class SpectrumGrid(sampleRate: Int, fftSize: Int, private val minHz: Float, priv
 
     private fun hzAt(i: Float): Float = minHz * (maxHz/minHz).pow(i / (POINTS - 1))
 
-    // horizontal position - normalized
     fun xOf(hz: Float): Float = log2(hz / minHz) / log2(maxHz / minHz)
 
     fun downsample(src: FloatBuffer, out: FloatArray) {

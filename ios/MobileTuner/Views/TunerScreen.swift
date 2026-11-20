@@ -36,12 +36,12 @@ struct TunerScreen: View {
             // The UI never waits on DSP: it samples the latest snapshot at most 30 times per second.
             TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
                 let snap = model.latest
-                let detected = snap.result.flatMap { $0.pitchHz > 0 ? $0 : nil }
                 VStack(spacing: 16) {
                     TuningPanel(
                         targetMidi: model.targetMidi,
-                        cents: detected?.cents,
-                        pitchHz: detected?.pitchHz
+                        cents: snap.reading?.cents,
+                        pitchHz: snap.reading?.pitchHz,
+                        isLive: snap.reading?.isLive ?? false
                     )
                     statusLine(snap)
                 }

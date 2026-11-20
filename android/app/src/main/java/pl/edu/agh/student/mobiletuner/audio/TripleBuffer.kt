@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicInteger
 class TripleBuffer(size: Int) {
     private val buffers = Array(3) { FloatArray(size) }
 
-    //Index of the shared middle slot
     private val middle = AtomicInteger(1)
     private var back = 0
     private var front = 2

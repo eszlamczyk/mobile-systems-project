@@ -34,9 +34,6 @@ class TunerEngine(context: Context) : AutoCloseable {
     val isLearningNoise: Boolean
         get() = learnRequested
 
-    @Volatile var noiseError: String? = null
-        private set
-
     private var thread: Thread? = null
 
     // Analysis parameters default in dsp-core (TunerConfig); only the rate is ours.
@@ -47,7 +44,6 @@ class TunerEngine(context: Context) : AutoCloseable {
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
 
-    // plot-related
     val grid = SpectrumGrid(SAMPLE_RATE_HZ, config.fftSize.toInt(), config.minHz, config.maxHz)
     val plot = TripleBuffer(SpectrumGrid.POINTS)
 
@@ -77,7 +73,7 @@ class TunerEngine(context: Context) : AutoCloseable {
         // Fails when another app holds the mic; startRecording() would then throw on the DSP thread.
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
-            latest = Snapshot(null, 0, 0, "microphone unavailable")
+            latest = Snapshot(null, null, 0, 0, "microphone unavailable", null)
             return
         }
 
@@ -89,6 +85,7 @@ class TunerEngine(context: Context) : AutoCloseable {
             null
         }
         ghost = tuner?.let { ghostFor(it) }
+        plotListener?.onPlotFrame()
         // A learning run cut short by stop() starts over rather than mixing two sessions.
         noise.clear()
         running = true
@@ -97,16 +94,35 @@ class TunerEngine(context: Context) : AutoCloseable {
 
     private fun loop(record: AudioRecord, coreError: String?) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        val stabilizer = PitchStabilizer(SAMPLE_RATE_HZ.toDouble() / config.hopSize.toDouble())
+        var stabilizedTarget = targetMidi
+        var noiseError: String? = null
         var hops = 0L
         var dropped = 0L
         record.startRecording()
         while (running) {
             // read() never moves position; it must stay 0 (the UniFFI converter ignores it)
-            if (record.read(pcm, hopBytes, AudioRecord.READ_BLOCKING) != hopBytes) continue
+            val read = record.read(pcm, hopBytes, AudioRecord.READ_BLOCKING)
+            if (read < 0) {
+                if (running) {
+                    latest = Snapshot(null, null, hops, dropped, "microphone unavailable", noiseError)
+                }
+                break
+            }
+            if (read != hopBytes) continue
             hops++
             val t = tuner
-            if (learnRequested && collectNoiseHop(t)) {
-                learnRequested = false
+            var runDone = false
+            if (learnRequested) {
+                if (noise.position() == 0) noiseError = null
+                noise.put(pcm)
+                pcm.rewind()
+                if (!noise.hasRemaining()) {
+                    noise.rewind()
+                    noiseError = learnNoise(t)
+                    noise.clear()
+                    runDone = true
+                }
             }
             val result = if (t == null) null else try {
                 t.process(pcm)
@@ -114,30 +130,29 @@ class TunerEngine(context: Context) : AutoCloseable {
                 dropped++
                 null
             }
-
-            latest = Snapshot(result, hops, dropped, coreError)
+            // Cents are relative to the target, so a new target starts a new reading.
+            val target = targetMidi
+            if (target != stabilizedTarget) {
+                stabilizer.reset()
+                stabilizedTarget = target
+            }
+            val reading = stabilizer.update(result?.pitchHz ?: 0f, result?.cents ?: 0f)
+            latest = Snapshot(result, reading, hops, dropped, coreError, noiseError)
             if (t != null && result != null) publishPlot(result)
+            if (runDone) learnRequested = false
         }
         record.stop()
         record.release()
     }
 
-    private fun collectNoiseHop(t: Tuner?): Boolean {
-        noise.put(pcm)
-        pcm.rewind()
-        if (noise.hasRemaining()) return false
-        noise.rewind()
-        noiseError = if (t == null) {
-            "core unavailable"
-        } else try {
-            t.learnNoise(noise)
-            null
-        } catch (e: Exception) {
-            // The previous profile stays; the user can calibrate again.
-            e.message ?: e.javaClass.simpleName
-        }
-        noise.clear()
-        return true
+    private fun learnNoise(t: Tuner?): String? = if (t == null) {
+        "core unavailable"
+    } else try {
+        t.learnNoise(noise)
+        null
+    } catch (e: Exception) {
+        // The previous profile stays; the user can calibrate again.
+        e.message ?: e.javaClass.simpleName
     }
 
     private fun publishPlot(result: TunerResult) {
@@ -160,19 +175,18 @@ class TunerEngine(context: Context) : AutoCloseable {
     }
 
     fun requestNoiseLearning() {
-        noiseError = null
         learnRequested = true
     }
 
     private fun unprocessedSupported(): Boolean =
         audioManager?.getProperty(PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
 
-
     fun setTarget(midi: Int) {
         if (midi !in 0..127 || midi == targetMidi) return
         if (runCatching { tuner?.setTarget(midi) }.isSuccess) {
             targetMidi = midi
             ghost = tuner?.let { ghostFor(it) }
+            plotListener?.onPlotFrame()
         }
     }
 

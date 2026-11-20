@@ -4,6 +4,8 @@ struct TuningPanel: View {
     let targetMidi: Int32
     let cents: Float?
     let pitchHz: Float?
+    /// False while the last reading is held after the note faded; the panel dims.
+    var isLive = true
 
     var body: some View {
         VStack(spacing: 8) {
@@ -24,7 +26,9 @@ struct TuningPanel: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
         .background(background, in: .rect(cornerRadius: 20))
+        .opacity(cents != nil && !isLive ? 0.6 : 1)
         .animation(.easeOut(duration: 0.15), value: cents)
+        .animation(.easeOut(duration: 0.3), value: isLive)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
     }
@@ -55,7 +59,7 @@ struct TuningPanel: View {
 #Preview {
     VStack(spacing: 16) {
         TuningPanel(targetMidi: 38, cents: 1.2, pitchHz: 73.5)
-        TuningPanel(targetMidi: 45, cents: -22, pitchHz: 108.6)
+        TuningPanel(targetMidi: 45, cents: -22, pitchHz: 108.6, isLive: false)
         TuningPanel(targetMidi: 64, cents: nil, pitchHz: nil)
     }
     .padding()

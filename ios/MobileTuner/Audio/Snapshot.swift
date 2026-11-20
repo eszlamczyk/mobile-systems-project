@@ -3,13 +3,16 @@ import DspCore
 
 nonisolated final class Snapshot: AtomicReference, @unchecked Sendable {
     let result: TunerResult?
+    /// What the tuning panel shows: `result` stabilized and held over gaps, nil when nothing to show.
+    let reading: PitchStabilizer.Reading?
     let hops: Int
     let dropped: Int
     let coreError: String?
     let noiseError: String?
     
-    init(result: TunerResult?, hops: Int, dropped: Int, coreError: String?, noiseError: String?) {
+    init(result: TunerResult?, reading: PitchStabilizer.Reading? = nil, hops: Int, dropped: Int, coreError: String?, noiseError: String?) {
         self.result = result
+        self.reading = reading
         self.hops = hops
         self.dropped = dropped
         self.coreError = coreError
